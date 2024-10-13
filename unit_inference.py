@@ -39,11 +39,11 @@ def recognition_a_car(
     lp = normalize_brightness(lp)
 
     if lpdgan is not None:
-        clear = lpdgan.inference(x=lp)
+        lp = lpdgan.inference(x=lp)
     
-    clear = L_CLAHE(clear)
+    lp = L_CLAHE(lp)
     #cv2.imwrite("demo.jpg", clear)
-    txt, raw_txt, txt_conf = recong(crop=clear)
+    txt, raw_txt, txt_conf = recong(crop=lp)
     
     return (license_plates_box, (txt, raw_txt, txt_conf), lp) if return_lp_crop \
         else (license_plates_box, (txt, raw_txt, txt_conf))
