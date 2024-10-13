@@ -45,9 +45,13 @@ This function demonstrates how to recognize a car plate from a cropped image.
 
 Parameters:
 - ```--img```: Path to the cropped car image for license plate recognition.
-- ```--lp_yolo```: Path to YOLOv8 model weights for license plate detection (default set).
+- ```--lp_yolo```: Path to YOLOv8 model weights for license plate detection 
+    - default set.
 - ```--deblur```: Use LPGAN for deblurring (flag: store_true).
-- ```--lpdgan```: Path to pre-trained LPDGAN generator weights (used if --deblur is set, default path provided).
+- ```--lpdgan```: Path to pre-trained LPDGAN generator weights 
+    - default set
+    - Please note that Providing only the `lpdgan` path will not suffice for deblurring. Deblurring will only be applied when the `--deblur` option is explicitly set. 
+    
 
 The license plate recognition result is refered to [```recognition_a_car() txt string variable```](./unit_inference.py#L46) string variable.
 
