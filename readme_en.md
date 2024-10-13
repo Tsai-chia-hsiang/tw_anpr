@@ -40,7 +40,7 @@ Download the pretrained LPDGAN SwinTransformer (`net_G.pt`) from [this link](htt
 ## Usage
 Refer to [```unit_inference.py```](./unit_inference.py) for examples.
 
-Function: [```recognition_a_car()```](./unit_inference.py#L24)
+Function: [```recognition_a_car()```](./unit_inference.py#L14)
 This function demonstrates how to recognize a car plate from a cropped image.
 
 Parameters:

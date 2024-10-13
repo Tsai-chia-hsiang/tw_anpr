@@ -36,7 +36,7 @@ Python >= 3.10
 ## 使用範例
 請看參考 [```unit_inference.py```](./unit_inference.py)。
 
-- 其中的 [```recognition_a_car()```](./unit_inference.py#L24) 有展示如何對一台車子的 crop 進行車牌辨識
+- 其中的 [```recognition_a_car()```](./unit_inference.py#L14) 有展示如何對一台車子的 crop 進行車牌辨識
 
 [```unit_inference.py```](./unit_inference.py) 參數:
 - ```--img``` : 要做車牌辨識的 crop 的路徑
