@@ -42,7 +42,6 @@ def recognition_a_car(
         lp = lpdgan.inference(x=lp)
     
     lp = L_CLAHE(lp)
-    #cv2.imwrite("demo.jpg", clear)
     txt, raw_txt, txt_conf = recong(crop=lp)
     
     return (license_plates_box, (txt, raw_txt, txt_conf), lp) if return_lp_crop \
