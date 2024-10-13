@@ -17,7 +17,10 @@ Python >= 3.10
         - cpu version : ```pip install paddlepaddle``` 
             - 這是我這邊使用的版本
         - gpu version : ```pip install paddlepaddle-gpu```
-            - 如果使用 GPU 版本，請在執行前先確認 CUDA 路徑是否有在環境變數裡面
+            - 如果使用 GPU 版本，請在執行前先確認  cuDNN libraries 路徑是否有在預設路徑裡面
+            - 如果 cuDNN libraries 是沒有裝在 default 環境的話，請在執行 python 指令前，先將 cuDNN libraries 安裝的路徑添加到該 session 的 ```$LD_LIBRARY_PATH``` :
+                - ```export LD_LIBRARY_PATH=/path/to/your/libraries:$LD_LIBRARY_PATH```
+                - e.g.: 我將 cuDNN 額外用 conda 安裝在自己的環境，那執行前要先下: ```export LD_LIBRARY_PATH={$HOME}/.conda/envs/tenv/lib:$LD_LIBRARY_PATH``` ，然後再下 python ....
     - paddleocr:
         - ```pip install paddleocr```
 

@@ -15,9 +15,13 @@
     - torch
     - ultralytics
     - paddle
-        - CPU version: ```pip install paddlepaddle``` (recommended)
+        - CPU version: ```pip install paddlepaddle``` 
+            - recommended
         - GPU version: ```pip install paddlepaddle-gpu```
-            - If using the GPU version, please ensure that the CUDA path is included in your environment variables before execution.
+            - If using the GPU version, please ensure that the cuDNN libraries are located in the default path before running.
+            - If the cuDNN libraries are not in the default environment, add the installation path to the session's `$LD_LIBRARY_PATH` before executing Python:
+                - ```export LD_LIBRARY_PATH=/path/to/your/libraries:$LD_LIBRARY_PATH```
+                - e.g.: If I installed cuDNN via conda in a custom environment, run: ```export LD_LIBRARY_PATH=${HOME}/.conda/envs/tenv/lib:$LD_LIBRARY_PATH```, then execute Python commands.
 
     - PaddleOCR: ```pip install paddleocr```
 
