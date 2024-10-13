@@ -47,7 +47,7 @@ Python >= 3.10
     - **如果參數有下 --deblur，這個才會有用。**
     - default 已經把路徑設置好了，如果要換其他權重再改
 
-針對該 crop，最終的車牌辨識結果是 [```recognition_a_car() 這個函數中的 txt 這個 str```](./unit_inference.py#L46) 這個變數
+針對該 crop，最終的車牌辨識結果是 [```recognition_a_car() 這個函數中的 txt 這個 str```](./unit_inference.py#L45) 這個變數
 
 e.g.:
 ``` python unit_inference.py --img ./cars/0.png --deblur```

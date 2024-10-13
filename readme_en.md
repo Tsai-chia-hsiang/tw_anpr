@@ -53,7 +53,7 @@ Parameters:
     - Please note that Providing only the `lpdgan` path will not suffice for deblurring. Deblurring will only be applied when the `--deblur` option is explicitly set. 
     
 
-The license plate recognition result is refered to [```recognition_a_car() txt string variable```](./unit_inference.py#L46) string variable.
+The license plate recognition result is refered to [```recognition_a_car() txt string variable```](./unit_inference.py#L45) string variable.
 
 Example:
 ```python unit_inference.py --img ./cars/0.png --deblur```
