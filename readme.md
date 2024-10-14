@@ -50,7 +50,7 @@ Python >= 3.10
 針對該 crop，最終的車牌辨識結果是 [```recognition_a_car() 這個函數中的 txt 這個 str```](./unit_inference.py#L45) 這個變數
 
 e.g.:
-``` python unit_inference.py --img ./cars/0.png --deblur```
+``` python unit_inference.py --img ./dataset/cars/0.png --deblur```
 
 **以上指令 demo 用的圖片由於是隱私的資料及，如果真的想執行，請到 https://drive.google.com/file/d/1W7kjO5eJXpqG11BtDkuL0MsdQdxB7SL2/view?usp=sharing 要求權限。
 - 請說明身分

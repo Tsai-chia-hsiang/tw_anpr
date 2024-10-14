@@ -56,7 +56,7 @@ Parameters:
 The license plate recognition result is refered to [```recognition_a_car() txt string variable```](./unit_inference.py#L45) string variable.
 
 Example:
-```python unit_inference.py --img ./cars/0.png --deblur```
+```python unit_inference.py --img ./dataset/cars/0.png --deblur```
 
 **image of above demo command is from private data.** If you would like to run the demo, please request access at the following link: [Google Drive Link](https://drive.google.com/file/d/1W7kjO5eJXpqG11BtDkuL0MsdQdxB7SL2/view?usp=sharing).
 - Please provide your identity and reason for requesting access.
