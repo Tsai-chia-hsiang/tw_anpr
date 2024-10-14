@@ -1,3 +1,6 @@
 **/*.pyc
 **/*.pt
-cars/*.png
+dataset/*
+# Except the readme.md file
+!dataset/readme.md
+result
