@@ -1,14 +1,12 @@
 import numpy as np
 from typing import Optional
 from pathlib import Path
-import torch
-import random
 import cv2
 import argparse
 from anpr import LicensePlate_Detection_YOLOV8, LicensePlate_OCR
 from anpr.lp_detector import _ANPR_DIR_
 from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN_DEFALUT_CKPT_DIR
-from LPDGAN.data.aug import normalize_brightness, L_CLAHE
+from imgproc_utils import normalize_brightness, L_CLAHE
 
 
 def recognition_a_car(
