@@ -1,7 +1,16 @@
+# https://github.com/Utkarsh-Deshmukh/Single-Image-Dehazing-Python.git
+
 import cv2
 import numpy as np
 import copy
 
+"""
+example :
+# read input image -- (**must be a color image**)
+HazeImg = cv2.imread('Images/foggy_oaks.jpg')	
+# Remove Haze					
+HazeCorrectedImg, haze_map = image_dehazer.remove_haze(HazeImg, showHazeTransmissionMap=False)		
+"""
 
 class image_dehazer():
     def __init__(self, airlightEstimation_windowSze=15, boundaryConstraint_windowSze=3, C0=20, C1=300,
