@@ -1,6 +1,6 @@
 # ANPR for TW license plate
 
-[English](./readme_en.md)
+[English](./docs/readme_en.md)
 
 ## pipeline:
 <img src="./docs/anplr.png">
@@ -56,7 +56,7 @@ e.g.:
 - 請說明身分
 
 ## TODO
-[TODO](./TODO.md)
+[TODO](./docs/TODO.md)
 
 ## Acknowledgments
 
