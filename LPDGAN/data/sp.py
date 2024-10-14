@@ -1,11 +1,11 @@
-from typing import Optional, Callable
+from typing import Optional
 import numpy as np
 import cv2
 import torch
 from torchvision import transforms
 from .aug import normalize_brightness
 
-class Spatial_Pyramid_cv2(Callable):
+class Spatial_Pyramid_cv2():
     
     def __init__(self, org_size:tuple[int, int]=(224, 112), origin_brightness:Optional[int]=180, interpolation:int=cv2.INTER_LINEAR) -> None:
         """
