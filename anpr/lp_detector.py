@@ -47,7 +47,7 @@ class Veh_Detector_with_LP_detection():
     def __init__(self, vehicle_model_path:str=None, lp_model_path:str=None, gpuid:int=0):
 
         self.lp_model_path = lp_model_path if lp_model_path is not None else Path(_ANPR_DIR_)/"anpr_v8.pt"
-        self.vehicle_model_path = vehicle_model_path if vehicle_model_path is not None else Path(FILE_DIR)/"yolov10l.pt"
+        self.vehicle_model_path = vehicle_model_path if vehicle_model_path is not None else Path(_ANPR_DIR_)/"yolov10l.pt"
         
         self.lp_model = YOLO(self.lp_model_path).to(device=torch.device(f"cuda:{gpuid}"))
         self.vehicle_model = YOLO(self.vehicle_model_path).to(device=torch.device(f"cuda:{gpuid}"))
