@@ -3,14 +3,14 @@ from typing import Optional
 from pathlib import Path
 import cv2
 import argparse
-from anpr import LicensePlate_Detection_YOLOV8, LicensePlate_OCR
+from anpr import LicensePlate_Detector, LicensePlate_OCR
 from anpr.lp_detector import _ANPR_DIR_
 from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN_DEFALUT_CKPT_DIR
 from imgproc_utils import normalize_brightness, L_CLAHE
 
 
 def recognition_a_car(
-    car_crop:np.ndarray, lp_detector:LicensePlate_Detection_YOLOV8, 
+    car_crop:np.ndarray, lp_detector:LicensePlate_Detector, 
     recong:LicensePlate_OCR, lpdgan:Optional[SwinTrans_G]=None, 
     return_lp_crop:bool=False
 ) -> tuple[list[int],tuple[str, str, float]]|tuple[list[int],tuple[str, str, float], np.ndarray]:
@@ -54,8 +54,8 @@ def main():
     
     args = parser.parse_args()
     
-    print("loading license plate yolov8 model ..")
-    lp_detector = LicensePlate_Detection_YOLOV8(model_path=args.lp_yolo)
+    print(f"loading license plate detection model {args.lp_yolo} ..")
+    lp_detector = LicensePlate_Detector(model_path=args.lp_yolo)
     print("loading PaddleOCR model ..")
     recog = LicensePlate_OCR()
     lpdgan_deblur_model = None
