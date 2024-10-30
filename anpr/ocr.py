@@ -2,6 +2,7 @@ import numpy as np
 from paddleocr import PaddleOCR
 import logging
 from paddleocr.ppocr.utils.logging import get_logger
+# from fast_plate_ocr import ONNXPlateRecognizer
 
 _paddle_logger = get_logger()
 _paddle_logger.setLevel(logging.ERROR)
@@ -42,6 +43,7 @@ class LicensePlate_OCR():
         - pattern1: AAA 0000 (len = 7)
         - pattern2: 000 0 AA (len = 6)
         - pattern3: 000 A AA (len = 6)
+        - pattern4: 0AA 0 00 (len = 6)
         """
 
         ret = None
@@ -50,10 +52,19 @@ class LicensePlate_OCR():
             ret = ''.join([self._DIG2ENG.get(c, c) for c in plate_number[:3]])
             ret += ''.join([self._ENG2DIG.get(c, c) for c in plate_number[3:]])
         else :
-            # pattern2 & pattern3
-            ret = ''.join([self._ENG2DIG.get(c, c) for c in plate_number[:3]]) 
-            ret += plate_number[3]
-            ret += ''.join([self._DIG2ENG.get(c, c) for c in plate_number[4:]])
+            n_eng_pre3 = sum([1 for _ in plate_number[:3] if _.isalpha()])
+            #print(plate_number[:3], n_eng_pre3)
+            if n_eng_pre3 >= 2:
+                # pattern4
+                ret = ''.join(self._ENG2DIG.get(plate_number[0], plate_number[0]))
+                ret += ''.join(self._DIG2ENG.get(c,c) for c in plate_number[1:3])
+                ret += ''.join(self._ENG2DIG.get(c,c) for c in plate_number[3:])
+            else:   
+                # pattern2 & pattern3
+                ret = ''.join([self._ENG2DIG.get(c, c) for c in plate_number[:3]]) 
+                ret += plate_number[3]
+                ret += ''.join([self._DIG2ENG.get(c, c) for c in plate_number[4:]])
+        
         return ret
      
     def _count_area(self, d)->int:    
@@ -86,4 +97,73 @@ class LicensePlate_OCR():
         else:
             return 'None', 'None', conf
     
+def character_eval(samples:list[tuple[str, str]]) -> tuple[float, float, float]:
+    """
+    Args
+    ---
+    - samples : [(pred0, gth0), (pred1, gth1), ... ]
+    
+    Returns
+    ---
+    three float: (precision, recall, f1_score) 
+    """
+    
+    # Initialize total counts
+    total_tp = 0  # Total True Positives
+    total_fp = 0  # Total False Positives
+    total_fn = 0  # Total False Negatives
+
+    # Process each (predicted, ground_truth) pair
+    for predicted, ground_truth in samples:
+        # Initialize counts for the current sample
+        tp = 0
+        fp = 0
+        fn = 0
+
+        # Calculate TP, FP, FN for the current sample
+        min_length = min(len(ground_truth), len(predicted))
         
+        # Count True Positives (matching characters)
+        for i in range(min_length):
+            if ground_truth[i] == predicted[i]:
+                tp += 1
+            else:
+                fp += 1
+                fn += 1
+
+        # Extra characters in predicted text are False Positives
+        if len(predicted) > len(ground_truth):
+            fp += len(predicted) - len(ground_truth)
+
+        # Missing characters in predicted text are False Negatives
+        elif len(ground_truth) > len(predicted):
+            fn += len(ground_truth) - len(predicted)
+
+        # Accumulate counts
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+
+    # Calculate overall precision, recall, and F1 score
+    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
+    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
+    f1_score = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+    """
+    # Print results
+    print(f"Total True Positives (TP): {total_tp}")
+    print(f"Total False Positives (FP): {total_fp}")
+    print(f"Total False Negatives (FN): {total_fn}")
+    print(f"Overall Precision: {precision:.3f}")
+    print(f"Overall Recall: {recall:.3f}")
+    print(f"Overall F1 Score: {f1_score:.3f}")
+    """
+
+    return precision, recall, f1_score
+
+"""
+m = ONNXPlateRecognizer('argentinian-plates-cnn-model')
+x = m.run("submit_baseline/ccpb-006_北鎮派出所_2023-06-27T11_45_00+08_00/0.jpg")
+print(x)
+
+"""
