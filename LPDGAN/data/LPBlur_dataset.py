@@ -5,10 +5,9 @@ from typing import Optional, Literal
 from torch.utils.data import Dataset
 import torch
 from torchvision import transforms
-import numpy as np
-from PIL import Image
-import pandas as pd
+import json
 import easyocr
+from logging import Logger
 import torch.nn as nn
 from .sp import Spatial_Pyramid_cv2
 
@@ -24,16 +23,67 @@ def get_easy_ocr_rcnn():
 
 flatten2D = lambda  nested_list: [item for sublist in nested_list for item in sublist]
 
-
-class CruiserLPBlurDataset(Dataset):
+class LP_Deblur_OCR_Valiation_set(Dataset):
+    def __init__(self, imgs:list[Path], labels:list[Path], org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180):
+        super().__init__()
+        self.imgs = imgs
+        self.labels = labels
+        self.sp = Spatial_Pyramid_cv2(org_size=org_size, origin_brightness=on_brightness)
     
-    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test', 'inference']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
+    def __len__(self):
+        return len(self.imgs)
+    
+    def __getitem__(self, index) -> dict[str, torch.Tensor|str]:
+        blur_img = cv2.imread(self.imgs[index]) 
+        r = self.sp(img=blur_img, L=3, map_key="A")
+        r['gth'] = self.labels[index]
+        return r
+    
+    @classmethod
+    def make_val_ocr_dataset(cls, val_dataset_root:Optional[Path]=None, label_file:Optional[Path]=None, org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180, logger:Optional[Logger]=None) -> "LP_Deblur_OCR_Valiation_set"|None:
+        
+        if val_dataset_root is None or label_file is None:
+            if logger is not None:
+                logger.info("No valiation dataset, return None as validation set")
+            else:
+                print("No valiation dataset, return None as validation set")
+            return None
+        
+        if not val_dataset_root.is_dir():
+            if logger is not None:
+                logger.info(f"No such {val_dataset_root} a dir, return None as validation set")
+            else:
+                print(f"No such {val_dataset_root} a dir, return None as validation set")
+            return None
+        
+        if not label_file.is_file():
+            if logger is not None:
+                logger.info(f"No such {label_file} a label file, return None as validation set")
+            else:
+                print(f"No such {label_file} a label file, return None as validation set")
+            return None
+        
+        labels:dict[str, str] = None
+        with open(label_file, "r") as f:
+            labels = json.load(f)
+        
+        imgs = [val_dataset_root/i for i in list(labels.keys())]
+        plate_num = list(labels.values())
+
+        return cls(imgs=imgs, labels = plate_num, org_size=org_size, on_brightness=on_brightness)
+
+
+
+
+class LPBlurDataset(Dataset):
+    
+    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
         
         super().__init__()
         self.mode = mode
         self.org_size = org_size
         self.text_crnn, self.advp = None ,None
-        self.need_gth = self.mode in ["train", "test"]
+        self.need_gth = self.mode == "train"
         if self.need_gth:
             self.text_crnn = get_easy_ocr_rcnn()
             self.advp = nn.AdaptiveMaxPool2d((21, 1))
