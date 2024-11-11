@@ -39,7 +39,7 @@ class SwinTrans_G(nn.Module):
             case "inference":
                 self.eval()
 
-    def forward(self, x:dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, x:dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor]:
 
         fake_B, fake_B1, fake_B2, fake_B3, plate1, plate2 = self.netG(
             x['A0'].to(self.device), x['A1'].to(self.device), x['A2'].to(self.device)
@@ -51,7 +51,14 @@ class SwinTrans_G(nn.Module):
 
         fake_B, _ ,_ ,_ ,_, _ = self(self.inference_aug(img=x, map_key='A', L=3, to_batch=True))
         
-        return tensor2img(input_image=fake_B, to_cv2=to_cv2)
+        return tensor2img(input_image=fake_B[0], to_cv2=to_cv2)
+    
+    @torch.no_grad()
+    def batch_inference(self, x:dict[str, torch.Tensor],to_cv2:bool=True) -> list[np.ndarray]:
+        fake_B, _ ,_ ,_ ,_, _ = self(x)
+        fake_B = fake_B.cpu()
+        return [tensor2img(fake_Bi, to_cv2=to_cv2) for fake_Bi in fake_B]
+        
 
 class LPDGAN(nn.Module):
     
