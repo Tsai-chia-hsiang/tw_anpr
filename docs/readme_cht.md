@@ -74,6 +74,37 @@ Python >= 3.10
 - ```--ave_epoch_freq```： 設定每隔多少個訓練輪數保存模型檔案。
 
 - ```model_save_root```： 保存模型的根目錄。
+
+例: 使用以下指令，則會保存不同的 epoch 下的模型於此:
+```./dataset/tw_pos/train/```
+```
+    .
+    └── LPDGAN/
+        └── checkpoints/
+            └── exp/
+                ├── epoch_10/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+                ├── epoch_20/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+                ├── epoch_30/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+                ├── .../
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                |
+                ├── latest/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+```
+
 ### Evaluation: Using OCR performance:
   - 由於這項任務的下游是使用 OCR 進行車牌辨識，所以這邊的 metrics 直接使用 ocr 對去模糊化後的車牌影像進行辨識，使用 OCR Accuracy (1 - CER) 來當作評估指標，就沒有用 SSIM,PSNR,Perceptual Loss 等影像修復的 metrics 來去看
     - ```python ocr_eval.py --label {the label file} --data_root {the root of test imgs} --deblur {the weighted of trained SwinTrans_G} --deblur_ckpt_dir {the directory that the pretrained SwinTrans_G at, has a default value}```
