@@ -5,15 +5,15 @@
 ## pipeline:
 <img src="./anplr.png">
 
-
-## Execution
-1. Enviroments
+## Enviroments
 - Python >= 3.10
 - Third-party Packages
     - numpy
     - opencv
     - torch
     - ultralytics
+    - EasyOCR
+    - Levenshtein
     - paddle
         - CPU version: ```pip install paddlepaddle``` 
             - recommended
@@ -30,14 +30,33 @@
     - ```~/.paddleocr/whl/det/en/en_PP-OCRv3_det_infer.tar```
     - ```~/.paddleocr/whl/rec/en/en_PP-OCRv4_rec_infer.tar```
 
-2. Download the License Plate Detection Model Weights:
+## Execution for for License Plate Recognition
+1. Download the License Plate Detection Model Weights:
 Download the `anpr_v8.pt` file from the [Automatic-Number-Plate-Recognition-Using-YOLOv8-EasyOCR/models](https://github.com/ANPR-ORG/Automatic-Number-Plate-Recognition-Using-YOLOv8-EasyOCR/tree/main/models) and save it to [```anpr/anpr_v8.pt```](./anpr).
 
-3. (Optional) Download the Pretrained Generator Weights for LPDGAN:
+2. (Optional) Download the Pretrained Generator Weights for LPDGAN:
 Download the pretrained LPDGAN SwinTransformer (`net_G.pt`) from [this link](https://drive.google.com/file/d/1sQD1uKOBpPCYGC8WGhoil47dOC2RjVQx/view?usp=sharing), and save it to [```./LPDGAN/checkpoints/net_G.pt```](./LPDGAN/checkpoints).
 
+## Deblur
+- The LPDGAN model (paper: [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) is used for deblurring license plates to enhance the accuracy of OCR-based license plate recognition.
+### Train:
+### Evaluation: Using OCR performance:
+  - Since the downstream task involves OCR for license plate recognition, we use OCR accuracy (1 - CER) as the evaluation metric on deblurred license plate images. Image restoration metrics like SSIM, PSNR, and Perceptual Loss are not used in this evaluation.
+    - ```python ocr_eval.py --label {the label file} --data_root {the root of test imgs} --deblur {the weights of trained SwinTrans_G} --deblur_ckpt_dir {the directory of the pretrained SwinTrans_G, with a default value}```
+    
+    - e.g., ```python ocr_eval.py --data_root ./dataset/third_party/blur/ --label_file ./dataset/third_party/label.json --deblur net_G.pt```
 
-## Usage
+    - label_file:
+      - A JSON object file where each key-value pair is in the format: ```filename:license_plate```
+        - e.g.: 
+            ```
+            {"1.jpg":"AAA0000", "2.jpg":"BB111", ... }
+            ```
+    - data_root: The root directory where testing images are stored. During execution, each image filename in ```label_file``` will be combined with ```data_root``` to form the path for each test image.
+        - e.g., ```--data_root ./dataset/third_party/blur/```, with the sample label_file above, the full paths for images in ```ocr_eval.py``` will be ```["./dataset/third_party/blur/1.jpg", "./dataset/third_party/blur/2.jpg", ...]```, and the labels will be generated in the order specified by ```label_file``` as ```["AAA0000", "BB111", ...]```
+
+
+### Usage
 Refer to [```unit_inference.py```](./unit_inference.py) for examples.
 
 Function: [```recognition_a_car()```](./unit_inference.py#L14)
