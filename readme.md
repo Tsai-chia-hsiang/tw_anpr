@@ -83,6 +83,34 @@ Using the command: ```python train_LPDGAN.py```
 
 E.g., ```python train_LPDGAN.py --model_save_root ./LPDGAN/checkpoints/exp --save_epoch_freq 10```
 
+Then it will save the models from different epochs like this way:
+```
+    .
+    └── LPDGAN/
+        └── checkpoints/
+            └── exp/
+                ├── epoch_10/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+                ├── epoch_20/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+                ├── epoch_30/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+                ├── .../
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                |
+                ├── latest/
+                │   ├── netG.pth
+                │   ├── netD.pth
+                │   └── ...
+``` 
 
 ### Evaluation: Using OCR performance:
   - Since the downstream task involves OCR for license plate recognition, we use OCR accuracy (1 - CER) as the evaluation metric on deblurred license plate images. Image restoration metrics like SSIM, PSNR, and Perceptual Loss are not used in this evaluation.
