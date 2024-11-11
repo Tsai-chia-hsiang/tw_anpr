@@ -77,7 +77,7 @@ Using the command: ```python train_LPDGAN.py```
     - ```--ave_epoch_freq``` :
         How many epoch should save the ckpt
     
-    - ```model_save_root``` :
+    - ```--model_save_root``` :
         The root to save model
 
 
