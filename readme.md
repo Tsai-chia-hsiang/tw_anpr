@@ -55,7 +55,7 @@ Download the pretrained LPDGAN SwinTransformer (`net_G.pt`) from [this link](htt
     - data_root: The root directory where testing images are stored. During execution, each image filename in ```label_file``` will be combined with ```data_root``` to form the path for each test image.
         - e.g., ```--data_root ./dataset/third_party/blur/```, with the sample label_file above, the full paths for images in ```ocr_eval.py``` will be ```["./dataset/third_party/blur/1.jpg", "./dataset/third_party/blur/2.jpg", ...]```, and the labels will be generated in the order specified by ```label_file``` as ```["AAA0000", "BB111", ...]```
 
-
+## Execution for License Plate Recognition
 ### Usage
 Refer to [```unit_inference.py```](./unit_inference.py) for examples.
 
