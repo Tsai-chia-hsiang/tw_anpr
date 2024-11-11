@@ -1,17 +1,20 @@
 """
 Refactoring from https://github.com/haoyGONG/LPDGAN.git
 """
-
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
+import json
 import time
 from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 from torch.utils.data import DataLoader
 from pathlib import Path
-from LPDGAN.data.LPBlur_dataset import CruiserLPBlurDataset
+from logging import Logger
+from LPDGAN.data.LPBlur_dataset import LPBlurDataset, LP_Deblur_OCR_Valiation_set
 from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN, LPDGAN_DEFALUT_CKPT_DIR
 from LPDGAN.logger import get_logger, remove_old_tf_evenfile
+
+
 
 def main(args:Namespace):
     
@@ -21,14 +24,27 @@ def main(args:Namespace):
     logger.info(f"{args}")
     
     dataset_root:Path = args.data_root
-    dataset = CruiserLPBlurDataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
-    
+    dataset = LPBlurDataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
     logger.info(f'The number of training pairs = {len(dataset)}')
 
-    dataloader = DataLoader(
+    val_dataset = LP_Deblur_OCR_Valiation_set.make_val_ocr_dataset(
+        val_dataset_root=args.val_data_root,
+        label_file=args.label_file,
+        logger=logger
+    )
+    val_loader = None
+    if val_dataset is not None:
+        logger.info(f"Validation number : {len(val_dataset)}")
+        val_loader = DataLoader(
+            dataset=val_dataset, batch_size=args.batch_size, 
+            shuffle=False
+        )
+    trainloader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, 
         shuffle=True, num_workers=int(args.num_threads)
     )
+    
+    
     Swin_Generator = SwinTrans_G(
         pretrained_ckpt=args.pretrained_dir/f"net_G.pth" \
         if args.pretrained_dir is not None else None,
@@ -52,7 +68,7 @@ def main(args:Namespace):
         epoch_iter = 0
 
         lpdgan.update_learning_rate(logger=logger)
-        for data in tqdm(dataloader):
+        for data in tqdm(trainloader):
             total_iters += args.batch_size
             epoch_iter += args.batch_size
             lpdgan.set_input(data)
@@ -82,7 +98,10 @@ if __name__ == "__main__":
     # Data path
     parser.add_argument("--data_root", type=Path, default=Path("./dataset")/"tw_post"/"train")
     parser.add_argument("--blur_aug", nargs='+', type=str, default='all')
-    
+
+    parser.add_argument("--val_data_root", type=Path, default=None)
+    parser.add_argument("--label_file", type=Path, default=None)
+
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
     parser.add_argument("--gpu_id", type=int, default=0)
 
