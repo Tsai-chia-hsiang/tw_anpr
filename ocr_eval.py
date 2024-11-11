@@ -21,7 +21,10 @@ def main(args:Namespace):
     lp_ocr = LicensePlate_OCR()
     deblur_swintransformer = None
     if args.deblur is not None:
-        deblur_swintransformer = SwinTrans_G(pretrained_ckpt=LPDGAN_DEFALUT_CKPT_DIR/args.deblur, mode='inference')
+        deblur_swintransformer = SwinTrans_G(
+            pretrained_ckpt=args.deblur_ckpt_dir/args.deblur, 
+            mode='inference', gpu_id=int()
+        )
     
     pred = [None] * len(imgs)
     for i, img_path in enumerate(tqdm(imgs)):
@@ -45,6 +48,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root", type=Path)
     parser.add_argument("--label_file", type=Path)
+    parser.add_argument("--deblur_ckpt_dir", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     parser.add_argument("--deblur", type=Path, default=None)
+    parser.add_argument("--gpu", type=int, default=0)
     args = parser.parse_args()
     main(args = args)
