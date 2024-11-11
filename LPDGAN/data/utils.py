@@ -17,7 +17,7 @@ def tensor2img(input_image:torch.Tensor, imtype:np.dtype=np.uint8, to_cv2:bool=T
     
     image_tensor = input_image.data
     # debatch & convert it into a numpy array
-    image_numpy = image_tensor[0].cpu().float().numpy()  
+    image_numpy = image_tensor.cpu().float().numpy()  
     if image_numpy.shape[0] == 1:  # grayscale to RGB
         image_numpy = np.tile(image_numpy, (3, 1, 1))
     
