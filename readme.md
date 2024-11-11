@@ -30,13 +30,6 @@
     - ```~/.paddleocr/whl/det/en/en_PP-OCRv3_det_infer.tar```
     - ```~/.paddleocr/whl/rec/en/en_PP-OCRv4_rec_infer.tar```
 
-## Execution for for License Plate Recognition
-1. Download the License Plate Detection Model Weights:
-Download the `anpr_v8.pt` file from the [Automatic-Number-Plate-Recognition-Using-YOLOv8-EasyOCR/models](https://github.com/ANPR-ORG/Automatic-Number-Plate-Recognition-Using-YOLOv8-EasyOCR/tree/main/models) and save it to [```anpr/anpr_v8.pt```](./anpr).
-
-2. (Optional) Download the Pretrained Generator Weights for LPDGAN:
-Download the pretrained LPDGAN SwinTransformer (`net_G.pt`) from [this link](https://drive.google.com/file/d/1sQD1uKOBpPCYGC8WGhoil47dOC2RjVQx/view?usp=sharing), and save it to [```./LPDGAN/checkpoints/net_G.pt```](./LPDGAN/checkpoints).
-
 ## Deblur
 - The LPDGAN model (paper: [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) is used for deblurring license plates to enhance the accuracy of OCR-based license plate recognition.
 ### Train:
@@ -75,7 +68,7 @@ Using the command: ```python train_LPDGAN.py```
     each folder should hold the image, only different level of blurring. 
     (sharp is the target, should be all clear image)
     
-    - ```--blur_aug``` : Specifies the levels of blur to be used.
+    - ```--blur_aug``` : Specifies the kinds of blur to be used.
 
         - e.g., ```--blur_aug blur_mosaic blur blur_little```, which will use the images in those 3 folders to pair with sharp images for training LPDGAN.
     

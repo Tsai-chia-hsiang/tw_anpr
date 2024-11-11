@@ -33,6 +33,47 @@ Python >= 3.10
 ## Deblur
 - 採用 LPDGAN (論文 : [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) 來對車牌進行去模糊的處理，目的為加強OCR 對車牌辨識的準確性
 ### Train:
+使用指令：```python train_LPDGAN.py```
+
+- 重要參數：
+    - ```--data_root```：資料集的根目錄，應包含以下資料夾：
+        1. sharp
+        2. 各種模糊資料夾
+   
+    例：./dataset/tw_pos/train/
+    ```
+    .
+    └── dataset/
+        └── tw_pos/
+            └── train/
+                ├── sharp/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                ├── blur/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                ├── blur_little/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                ├── blur_mosaic/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                └── ...
+    ```
+每個資料夾中應包含影像，僅模糊程度不同。（sharp 為目標資料夾，應包含全清晰影像）
+
+- ```--blur_aug```：指定要使用的模糊方式的資料夾。
+
+    例：```--blur_aug blur_mosaic blur blur_little```: 將使用這三個資料夾中的影像與 sharp 資料夾中的清晰影像配對，用於訓練 LPDGAN。
+- ```--n_epochs``` & ```--n_epochs_decay```： 設定使用原始學習率的訓練輪數以及學習率衰減的訓練輪數。
+
+- ```--ave_epoch_freq```： 設定每隔多少個訓練輪數保存模型檔案。
+
+- ```model_save_root```： 保存模型的根目錄。
 ### Evaluation: Using OCR performance:
   - 由於這項任務的下游是使用 OCR 進行車牌辨識，所以這邊的 metrics 直接使用 ocr 對去模糊化後的車牌影像進行辨識，使用 OCR Accuracy (1 - CER) 來當作評估指標，就沒有用 SSIM,PSNR,Perceptual Loss 等影像修復的 metrics 來去看
     - ```python ocr_eval.py --label {the label file} --data_root {the root of test imgs} --deblur {the weighted of trained SwinTrans_G} --deblur_ckpt_dir {the directory that the pretrained SwinTrans_G at, has a default value}```
