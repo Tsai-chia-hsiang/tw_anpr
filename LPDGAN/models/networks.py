@@ -7,21 +7,21 @@ import torchvision.transforms as transforms
 from .swin_transformer import SwinTransformerSys
 import copy
 from torchvision.models import VGG19_Weights
-
-def get_scheduler(optimizer, opt):
-    if opt.lr_policy == 'linear':
+from typing import Literal
+def get_scheduler(optimizer, n_epochs:int, n_epochs_decay:int, lr_decay_iters:int, lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear'):
+    if lr_policy == 'linear':
         def lambda_rule(epoch):
-            lr_l = 1.0 - max(0, epoch + 1 - opt.n_epochs) / float(opt.n_epochs_decay + 1)
+            lr_l = 1.0 - max(0, epoch + 1 - n_epochs) / float(n_epochs_decay + 1)
             return lr_l
         scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
-    elif opt.lr_policy == 'step':
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=opt.lr_decay_iters, gamma=0.1)
-    elif opt.lr_policy == 'plateau':
+    elif lr_policy == 'step':
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_decay_iters, gamma=0.1)
+    elif lr_policy == 'plateau':
         scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.2, threshold=0.01, patience=5)
-    elif opt.lr_policy == 'cosine':
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.n_epochs, eta_min=0)
+    elif lr_policy == 'cosine':
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=0)
     else:
-        return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
+        return NotImplementedError(f'learning rate policy {lr_policy} is not implemented')
     return scheduler
 
 
@@ -49,7 +49,7 @@ class GANLoss(nn.Module):
             target_tensor = self.fake_label
         return target_tensor.expand_as(prediction)
 
-    def __call__(self, prediction, target_is_real):
+    def __call__(self, prediction, target_is_real) -> torch.Tensor:
         if self.gan_mode in ['lsgan', 'vanilla']:
             target_tensor = self.get_target_tensor(prediction, target_is_real)
             loss = self.loss(prediction, target_tensor)
@@ -82,7 +82,7 @@ class PerceptualLoss(nn.Module):
 
         return model
 
-    def get_loss(self, fakeIm, realIm):
+    def get_loss(self, fakeIm, realIm) -> torch.Tensor:
 
         fakeIm = self.transform(fakeIm)
         realIm = self.transform(realIm)
@@ -99,7 +99,7 @@ class PerceptualLoss(nn.Module):
         loss = mse(f_fake_2_2, f_real_2_2_no_grad) + mse(f_fake_3_3, f_real_3_3_no_grad)
         return loss / 2.0
 
-    def __call__(self, fakeIm, realIm):
+    def __call__(self, fakeIm, realIm) -> torch.Tensor:
         return self.get_loss(fakeIm, realIm)
 
 class SwinTransformer_Backbone(nn.Module):
