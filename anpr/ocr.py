@@ -45,11 +45,11 @@ class LicensePlate_OCR():
         """
         - pattern1: AAA 0000 (len = 7)
         """
-        ret = None
-        if len(plate_number) > 6:
-            # pattern1
-            ret = ''.join([self._DIG2ENG.get(c, c) for c in plate_number[:3]])
-            ret += ''.join([self._ENG2DIG.get(c, c) for c in plate_number[3:]])
+        if len(plate_number) < 7:
+            return plate_number
+        # pattern1
+        ret = ''.join([self._DIG2ENG.get(c, c) for c in plate_number[:3]])
+        ret += ''.join([self._ENG2DIG.get(c, c) for c in plate_number[3:]])
         return ret
      
     def _count_area(self, d)->int:    
