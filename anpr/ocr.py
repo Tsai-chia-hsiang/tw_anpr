@@ -8,6 +8,8 @@ import Levenshtein as lev
 _paddle_logger = get_logger()
 _paddle_logger.setLevel(logging.ERROR)
 
+__all__ = ["LicensePlate_OCR", "cer", "all_correction_rate"]
+
 class LicensePlate_OCR():
     
     def __init__(self) -> None:
@@ -107,3 +109,9 @@ def cer(pred_gth: list[tuple[str, str]]) -> float:
 
     return edit_distance / N if N > 0 else float('inf')
 
+def all_correction_rate(pred_gth: list[tuple[str, str]]) -> tuple[list[int],float]:
+
+    N = len(pred_gth)
+    all_correct = [idx for idx, (pred, gth) in enumerate(pred_gth) if pred == gth]
+
+    return all_correct, len(all_correct) / N
