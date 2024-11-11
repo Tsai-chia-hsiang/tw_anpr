@@ -3,8 +3,8 @@
 dataset/*
 # Except the readme.md file
 LPDGAN/checkpoints
+!LPDGAN/models/taming/modules/autoencoder/ocr_perceptual/readme.md
 LPDGAN/models/taming/modules/autoencoder/ocr_perceptual
-!LPGAN
 !dataset/readme.md
 result
 label_webui
