@@ -81,8 +81,6 @@ class LicensePlate_OCR():
             return 'n', 'n', conf
     
 
-import Levenshtein as lev
-
 def cer(pred_gth: list[tuple[str, str]]) -> float:
     """
     Calculate the Character Error Rate (CER) for a list of predicted and ground truth string pairs.
