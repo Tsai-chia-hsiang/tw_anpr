@@ -81,7 +81,7 @@ Example:
 - Please provide your identity and reason for requesting access.
 
 ## TODO
-[TODO](TODO.md)
+[TODO](./docs/TODO.md)
 
 ## Acknowledgments
 

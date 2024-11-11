@@ -78,7 +78,7 @@ e.g.:
 - 請說明身分
 
 ## TODO
-[TODO](./docs/TODO.md)
+[TODO](./TODO.md)
 
 ## Acknowledgments
 
