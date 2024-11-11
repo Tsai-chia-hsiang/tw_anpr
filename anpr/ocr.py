@@ -3,12 +3,11 @@ from paddleocr import PaddleOCR
 import logging
 from paddleocr.ppocr.utils.logging import get_logger
 import Levenshtein as lev
-# from fast_plate_ocr import ONNXPlateRecognizer
 
 _paddle_logger = get_logger()
 _paddle_logger.setLevel(logging.ERROR)
 
-__all__ = ["LicensePlate_OCR", "cer", "all_correction_rate"]
+__all__ = ["LicensePlate_OCR", "cer", "all_correction_rate", "license_plate_ocr_evaluation"]
 
 class LicensePlate_OCR():
     
@@ -83,6 +82,7 @@ class LicensePlate_OCR():
             return 'n', 'n', conf
     
 
+
 def cer(pred_gth: list[tuple[str, str]]) -> float:
     """
     Calculate the Character Error Rate (CER) for a list of predicted and ground truth string pairs.
@@ -109,9 +109,46 @@ def cer(pred_gth: list[tuple[str, str]]) -> float:
 
     return edit_distance / N if N > 0 else float('inf')
 
+
 def all_correction_rate(pred_gth: list[tuple[str, str]]) -> tuple[list[int],float]:
 
     N = len(pred_gth)
     all_correct = [idx for idx, (pred, gth) in enumerate(pred_gth) if pred == gth]
 
     return all_correct, len(all_correct) / N
+
+
+def license_plate_ocr_evaluation(pred:str|list[str], gth:str|list[str])-> tuple[float, float, list[int]]:
+    """
+    Args:
+        - pred: prediction string, either a single str or a list of str
+        - gth: corresponding groundtruth string, either a single str or a list of str  
+    
+    Returns:
+        tuple of:
+        - ocr accuracy (float)
+            - 1- CER
+        - all correct rate (float)
+            - how many samples are all correct 
+            - if ```pred``` and ```gth``` are both str, then it is a binary value: 1 or 0
+        - all correct samples (list[int])
+            - the indices of the sample that all character is predicted correct.
+    """
+    pred_gth:list[tuple[str, str]] = None
+    
+    if isinstance(pred, list) and isinstance(gth, list):
+        assert len(pred) == len(gth)
+        pred_gth = list(zip(pred, gth))
+    
+    elif isinstance(pred_gth, str) and isinstance(gth, str):
+        pred_gth = [(pred, gth)]
+    
+    else:
+        raise ValueError("pred and gth should either be both a single str or both a list of str")
+
+        
+    e = cer(pred_gth=pred_gth)
+    acc = 1-e
+    all_correct_samples, all_correct_r = all_correction_rate(pred_gth=pred_gth)
+    return acc, all_correct_r, all_correct_samples
+
