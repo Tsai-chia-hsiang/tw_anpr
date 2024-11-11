@@ -40,6 +40,54 @@ Download the pretrained LPDGAN SwinTransformer (`net_G.pt`) from [this link](htt
 ## Deblur
 - The LPDGAN model (paper: [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) is used for deblurring license plates to enhance the accuracy of OCR-based license plate recognition.
 ### Train:
+Using the command: ```python train_LPDGAN.py```
+
+- Important Args:
+  - ```--data_root``` : The root of dataset, should contain the following folders:
+    1.  sharp
+    2.  The blur folders
+   
+    e.g., ```./dataset/tw_pos/train/```
+    ```
+    .
+    └── dataset/
+        └── tw_pos/
+            └── train/
+                ├── sharp/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                ├── blur/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                ├── blur_little/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                ├── blur_mosiac/
+                │   ├── 1.jpg
+                │   ├── 2.jpg
+                │   └── ...
+                └── ...
+    ```
+    
+    each folder should hold the image, only different level of blurring. 
+    (sharp is the target, should be all clear image)
+    
+    - ```--blur_aug``` : Specifies the levels of blur to be used.
+
+        - e.g., ```--blur_aug blur_mosaic blur blur_little```, which will use the images in those 3 folders to pair with sharp images for training LPDGAN.
+    
+    - ```--n_epochs``` & ```--n_epochs_decay``` :
+        The epochs that using origin lr and the epochs that using the decay the lr
+    - ```--ave_epoch_freq``` :
+        How many epoch should save the ckpt
+    
+    - ```model_save_root``` :
+        The root to save model
+
+
 ### Evaluation: Using OCR performance:
   - Since the downstream task involves OCR for license plate recognition, we use OCR accuracy (1 - CER) as the evaluation metric on deblurred license plate images. Image restoration metrics like SSIM, PSNR, and Perceptual Loss are not used in this evaluation.
     - ```python ocr_eval.py --label {the label file} --data_root {the root of test imgs} --deblur {the weights of trained SwinTrans_G} --deblur_ckpt_dir {the directory of the pretrained SwinTrans_G, with a default value}```
