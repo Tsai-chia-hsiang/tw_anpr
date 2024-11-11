@@ -1,3 +1,7 @@
+"""
+Refactoring from https://github.com/haoyGONG/LPDGAN.git
+"""
+
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import time
@@ -46,7 +50,7 @@ def main(args:Namespace):
     for epoch in range(1, args.n_epochs + args.n_epochs_decay + 1):
         epoch_start_time = time.time()
         epoch_iter = 0
-        
+
         lpdgan.update_learning_rate(logger=logger)
         for data in tqdm(dataloader):
             total_iters += args.batch_size
