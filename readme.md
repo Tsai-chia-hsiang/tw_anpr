@@ -88,6 +88,9 @@ Using the command: ```python train_LPDGAN.py```
         The root to save model
 
 
+E.g., ```python train_LPDGAN.py --model_save_root ./LPDGAN/checkpoints/exp --save_epoch_freq 10```
+
+
 ### Evaluation: Using OCR performance:
   - Since the downstream task involves OCR for license plate recognition, we use OCR accuracy (1 - CER) as the evaluation metric on deblurred license plate images. Image restoration metrics like SSIM, PSNR, and Perceptual Loss are not used in this evaluation.
     - ```python ocr_eval.py --label {the label file} --data_root {the root of test imgs} --deblur {the weights of trained SwinTrans_G} --deblur_ckpt_dir {the directory of the pretrained SwinTrans_G, with a default value}```
