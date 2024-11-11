@@ -39,17 +39,17 @@ class LicensePlate_Detector():
         
         """
         Args:
-        --
-        - imgs: the image(s) that need to detect the license plate. Can be
-            -  single image: a numpy ndarray in opencv manner
-            -  a batch of images: list of numpy ndarray in opencv manner
-            -  offset : where the coordinate start. If it's whole img, start from (0,0).
-                        Otherwise you can give the crop top-left coordinate to normalize
+        
+            - imgs: the image(s) that need to detect the license plate. Can be
+                -  single image: a numpy ndarray in opencv manner
+                -  a batch of images: list of numpy ndarray in opencv manner
+                -  offset : where the coordinate start. If it's whole img, start from (0,0).
+                            Otherwise you can give the crop top-left coordinate to normalize
         Return:
-        --
-        list of the coordinate (xyxy) for each input image(s) 
-        - first order : batch
-        - 2nd order : [x,y,x,y] for that image 
+        
+            list of the coordinate (xyxy) for each input image(s) 
+            - first order : batch
+            - 2nd order : [x,y,x,y] for that image 
         
         """
          
