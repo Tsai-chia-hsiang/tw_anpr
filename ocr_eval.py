@@ -1,13 +1,45 @@
-from anpr import LicensePlate_OCR, license_plate_ocr_evaluation
+from anpr import LicensePlate_OCR, cer
+import Levenshtein as lev
+from typing import Optional
 from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN_DEFALUT_CKPT_DIR
 from imgproc_utils import L_CLAHE, normalize_brightness
 from pathlib import Path
+import numpy as np
 import cv2
 import json
 import os.path as osp
 from tqdm import tqdm
 import argparse
 from argparse import Namespace
+from imgproc_utils.vis import make_comparasion, make_canvas, make_text_card
+
+def make_topk_vis_canvas(idxs, imgs:list, labels:list[str], pred:list[str], lp:LicensePlate_OCR, k=5, deblur_swintransformer:Optional[SwinTrans_G]=None) -> np.ndarray:
+    c = [None]*k
+    
+    for i, idx in enumerate(idxs[:k]):
+        src_img = cv2.imread(imgs[idx])
+        db = deblur_swintransformer.inference(x=src_img) \
+            if deblur_swintransformer is not None else \
+            normalize_brightness(src_img)
+        
+        src_img = normalize_brightness(src_img)
+        src_img = L_CLAHE(src_img)
+        origin_txt = lp(src_img)[0]
+        if origin_txt == 'n':
+            origin_txt = ""
+        od = lev.distance(origin_txt, labels[idx])
+        db = L_CLAHE(db)
+
+        c[i] = make_comparasion(
+            origin=src_img, org_text=f"{origin_txt}({od})", 
+            generate=db, gen_text=pred[idx]
+        )
+        c[i] = cv2.vconcat([
+            make_text_card(text=labels[idx], card_width=c[i].shape[1]), 
+            c[i]
+        ])
+    return make_canvas(c)
+        
 
 def read_json(file:str):
     with open(file, 'r') as fp:
@@ -49,9 +81,28 @@ def main(args:Namespace):
         plate_number = lp_ocr(crop=src_img)
         pred[i] = plate_number[0] if plate_number[0] != 'n' else ''
     
-    acc, all_correct, _ = license_plate_ocr_evaluation(pred=pred, gth=labels)
+    acc, edit_distances = cer(pred=pred, gth=labels, each_dist=True, to_acc=True)
+    pred = [f"{p}({e})" if e > 0 else f"{p}" for p, e in zip(pred, edit_distances)]
+    all_correct_rate = 1 - np.count_nonzero(edit_distances)/len(edit_distances)
+    print(f"{title},{acc},{all_correct_rate}")
+    
+    q = np.argsort(np.asarray(edit_distances))
+    edit_distances = np.asarray(edit_distances)[q]
+    vis_dir = Path("dataset/experiments")/f"{title}"
+    vis_dir.mkdir(parents=True, exist_ok=True)
+    for i, qi in enumerate([0, 0.3, 0.6, 1]):
+        idx= None
+        if qi ==0:
+            idx = q[:5]
+        elif qi == 1:
+            idx = q[-5:]
+        else:
+            pivot = int(len(q)*qi)
+            idx = q[pivot-3:pivot+2]
+        canvas = make_topk_vis_canvas(idxs=idx, imgs=imgs, labels=labels, pred=pred, lp=lp_ocr, deblur_swintransformer=deblur_swintransformer)
+        cv2.imwrite(vis_dir/f"q{i}.png", canvas)
 
-    print(f"{title},{acc},{all_correct}")
+
         
 
 if __name__ == "__main__":
