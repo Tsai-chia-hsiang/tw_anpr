@@ -4,18 +4,34 @@ Refactoring from https://github.com/haoyGONG/LPDGAN.git
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import json
+import random
 import time
 from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
+import torch
+import numpy as np
 from torch.utils.data import DataLoader
 from pathlib import Path
-from logging import Logger
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset,\
     SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR
 from LPDGAN.logger import get_logger, remove_old_tf_evenfile
 from anpr.ocr import cer, LicensePlate_OCR
 
 ocr_model = LicensePlate_OCR()
+
+def reproducible(seed:int = 891122):
+    # Set random seeds for reproducibility
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    # Ensure reproducibility with CUDA
+    torch.cuda.manual_seed_all(seed)
+
+    # Configure deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 def ocr_validation(db_model:SwinTrans_G, val_loader:LP_Deblur_OCR_Valiation_Dataset) -> float:
     pred = []
@@ -38,7 +54,8 @@ def main(args:Namespace):
     logger = get_logger(name=__name__, file=args.model_save_root/"training.log")
     
     logger.info(f"{args}")
-    
+    reproducible(seed=args.seed)
+
     dataset_root:Path = args.data_root
     dataset = LP_Deblur_Dataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
     logger.info(f'The number of training pairs = {len(dataset)}')
@@ -142,7 +159,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
     parser.add_argument("--gpu_id", type=int, default=0)
-
+    parser.add_argument("--seed", type=int, default=891122)
     # Batch size & epochs & lr scheduler
     parser.add_argument("--batch_size", type=int, default=15)
     parser.add_argument("--n_epochs", type=int, default=100, help='number of epochs with the initial learning rate')
