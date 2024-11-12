@@ -9,5 +9,3 @@ LPDGAN/models/taming/modules/autoencoder/ocr_perceptual
 result
 label_webui
 dump.rdb
-processing.ipynb
-garbage
