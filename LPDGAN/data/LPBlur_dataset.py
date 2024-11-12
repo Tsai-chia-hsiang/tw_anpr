@@ -1,13 +1,20 @@
 import os
 import cv2
+from tqdm import tqdm
+from .aug import L_CLAHE, normalize_brightness
 from pathlib import Path
+from paddleocr import PaddleOCR
+import logging
+from paddleocr.ppocr.utils.logging import get_logger
+_paddle_logger = get_logger()
+_paddle_logger.setLevel(logging.ERROR)
 from typing import Optional, Literal
 from torch.utils.data import Dataset
 import torch
-from torchvision import transforms
 import json
 import easyocr
 import torch.nn as nn
+import numpy as np
 from .sp import Spatial_Pyramid_cv2
 
 __all__ = ["LP_Deblur_Inference_Dataset", "LP_Deblur_OCR_Valiation_Dataset", "LP_Deblur_Dataset"]
@@ -77,22 +84,27 @@ class LP_Deblur_Dataset(Dataset):
         super().__init__()
         self.mode = mode
         self.org_size = org_size
-        self.text_crnn, self.advp = None ,None
-        self.need_gth = self.mode == "train"
-        if self.need_gth:
-            self.text_crnn = get_easy_ocr_rcnn()
-            self.advp = nn.AdaptiveMaxPool2d((21, 1))
+        
+        self.ocr = PaddleOCR(use_angle_cls=True, lang="en")
+ 
         self.blur_aug = blur_aug
         self.sharp_root = Path(data_root)/"sharp"
-        imgids = [_.name for _ in (self.sharp_root).glob("*.jpg")]
-
-        #_ = input(f"using {self.blur_aug} as blur pairs ? ")
-        
+        self.txt_info = {}
+        max_len = 0
+        min_len = 500
+        for imgid in tqdm([_.name for _ in (self.sharp_root).glob("*.jpg")]):
+            txt_tensor = self.get_text_info(img=self.sharp_root/imgid) 
+            if len(txt_tensor):
+                if len(txt_tensor) > max_len:
+                    max_len = len(txt_tensor)
+                if len(txt_tensor) < min_len:
+                    min_len = len(txt_tensor)
+                self.txt_info[imgid] = txt_tensor
+      
         self.sharp_blur_pairs = [
             [
-                (self.sharp_root/imgid if self.need_gth else None, 
-                Path(data_root)/f"{b}"/imgid) 
-                for imgid in imgids
+                (self.sharp_root/imgid, Path(data_root)/f"{b}"/imgid) 
+                for imgid in self.txt_info.keys()
             ] 
             for b in self.blur_aug
         ]
@@ -103,7 +115,7 @@ class LP_Deblur_Dataset(Dataset):
             if t[0] is not None:
                 assert t[0].is_file()
                 assert int(t[1].stem) == int(t[0].stem) 
-       
+        
         self.N_pairs = len(self.sharp_blur_pairs)
         self.sp = Spatial_Pyramid_cv2(org_size=self.org_size, origin_brightness=on_brightness)
 
@@ -114,28 +126,33 @@ class LP_Deblur_Dataset(Dataset):
     def __getitem__(self, idx) -> dict[str, torch.Tensor|str]:
         ps = self.sharp_blur_pairs[idx]
 
-        blur_path = ps[1] if self.need_gth else ps
+        blur_path = ps[1]
         blur_img = cv2.imread(blur_path)  
         r = self.sp(img=blur_img, L=3, map_key="A")
         r['A_paths'] = str(blur_path)
-        
-        if self.need_gth:
-            sharp_image = cv2.imread(ps[0])
-            r['plate_info'] = self.get_text_info(sharp=sharp_image)
-            r = r | self.sp(img=sharp_image, L=4, map_key="B")
-            r['B_paths']= str(ps[1])
+        sharp_image = cv2.imread(ps[0])
+        r['plate_info'] = self.txt_info[ps[0].name]
+        r = r | self.sp(img=sharp_image, L=4, map_key="B")
+        r['B_paths']= str(ps[1])
         
         return r
+    def get_text_info(self, img:Path) -> torch.Tensor:
+             
+        def count_area(d)->int:    
+            if d is None:
+                return 0
+            return (d[0][1][0] - d[0][0][0])*(d[0][2][1] - d[0][0][1])
         
-    @torch.no_grad()
-    def get_text_info(self, sharp)->torch.Tensor:
+        i = L_CLAHE(normalize_brightness(cv2.resize(cv2.imread(img), self.org_size)))
+        result = self.ocr.ocr(i, cls=True)[0]
         
-        sharp_im = transforms.ToTensor()(cv2.cvtColor(sharp, cv2.COLOR_BGR2GRAY)).unsqueeze(0) 
-        visual_feature = self.text_crnn.FeatureExtraction(sharp_im)
-        visual_feature = self.text_crnn.AdaptiveAvgPool(visual_feature.permute(0, 3, 1, 2))
-        visual_feature = visual_feature.squeeze(3)
-
-        """ Sequence modeling stage """
-        contextual_feature = self.text_crnn.SequenceModeling(visual_feature).unsqueeze(1)
-        text_f = self.advp(contextual_feature).squeeze()  # Shape: (batch_size, 1, 21, 1)
-        return text_f
+        if result is None:
+            return []
+        
+        main_patch = np.argmax(np.array([count_area(r) for r in result]))
+        t= torch.from_numpy(result[main_patch][1][2])
+        if len(t) < 10:
+            t = torch.cat([t, torch.zeros(10-len(t))])
+        elif len(t)>10:
+            raise ValueError(f"{img} in paddle OCR get too long region")
+        return t

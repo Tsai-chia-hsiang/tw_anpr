@@ -61,14 +61,14 @@ class LicensePlate_OCR():
         result = self.paddle_ocr_model.ocr(crop, cls=True)[0]
         
         if result is None:
-            return [None, -1.0]
+            return (None, -1.0, [])
 
         main_patch = np.argmax(np.array([self._count_area(r) for r in result]))
         return result[main_patch][1]
     
     def __call__(self, crop:np.ndarray, post_correction:bool=True) -> tuple[str, str, float]:
 
-        raw_txt, conf = self.paddle(crop=crop)
+        raw_txt, conf, logit = self.paddle(crop=crop)
         if raw_txt is not None:
             txt = None
             raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara))

@@ -49,7 +49,8 @@ class CNN_Linear(nn.Module):
         self.conv2 = nn.Conv1d(in_channels=128, out_channels=64, kernel_size=3, padding=1)
         self.norm2 = nn.BatchNorm1d(64)
 
-        self.fc = nn.Linear(64 * h_w, 21 * 78)
+        #self.fc = nn.Linear(64 * h_w, 21 * 78)
+        self.fc = nn.Linear(64 * h_w, 10 * 97)
 
     def forward(self, x):
         x = x.permute(0, 2, 1)
@@ -60,7 +61,8 @@ class CNN_Linear(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        x = x.view(-1, 21, 78)
+        #x = x.view(-1, 21, 78)
+        x = x.view(-1, 10, 97)
         x = F.softmax(x, dim=2)
 
         x = torch.argmax(x, dim=2)
