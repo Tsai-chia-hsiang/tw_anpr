@@ -20,7 +20,7 @@ check_gpu_id = lambda gpu_id: gpu_id > -1 and torch.cuda.is_available() and gpu_
 
 class SwinTrans_G(nn.Module):
     
-    def __init__(self, pretrained_ckpt:Optional[Path]=None, gpu_id:int=0, mode:Literal["train", "inference"]="train", on_size:tuple[int, int]=(224, 112)):
+    def __init__(self, pretrained_ckpt:Optional[Path]=None, gpu_id:int=0, mode:Literal["train", "inference"]="train", on_size:tuple[int, int]=(224, 112), show_log:bool=True):
         
         super(SwinTrans_G, self).__init__()
         self.mode = mode
@@ -28,7 +28,7 @@ class SwinTrans_G(nn.Module):
         config_su = get_config_or()
         self.netG = SwinTransformer_Backbone(config_su)
         self.model_name = 'G'
-        load_networks(pretrained_ckpt=pretrained_ckpt, net=self.netG)
+        load_networks(pretrained_ckpt=pretrained_ckpt, net=self.netG, show_log=show_log)
         self.netG.to(device=self.device)
         self.on_size = on_size
         self.inference_aug = Spatial_Pyramid_cv2(org_size=self.on_size) 

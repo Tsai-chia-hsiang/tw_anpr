@@ -4,6 +4,7 @@ from imgproc_utils import L_CLAHE, normalize_brightness
 from pathlib import Path
 import cv2
 import json
+import os.path as osp
 from tqdm import tqdm
 import argparse
 from argparse import Namespace
@@ -14,19 +15,27 @@ def read_json(file:str):
 
 def main(args:Namespace):
     
+    title = "defalut"
     img_label:dict[str, str] = read_json(args.label_file)
     
     imgs = list(map(lambda x:args.data_root/x, list(img_label.keys())))
     labels = list(img_label.values())
     lp_ocr = LicensePlate_OCR()
+    
     deblur_swintransformer = None
+    
     if args.deblur is not None:
+        ckpt_path = args.deblur_ckpt_dir/args.deblur
+        if ckpt_path.is_file():
+            title=osp.sep.join(ckpt_path.parts[-2:])
         deblur_swintransformer = SwinTrans_G(
             pretrained_ckpt=args.deblur_ckpt_dir/args.deblur, 
-            mode='inference', gpu_id=int()
+            mode='inference', gpu_id=int(args.gpu),
+            show_log=False
         )
     
     pred = [None] * len(imgs)
+    
     for i, img_path in enumerate(tqdm(imgs)):
         src_img = cv2.imread(img_path)
         if deblur_swintransformer is not None:
@@ -39,9 +48,10 @@ def main(args:Namespace):
         src_img = L_CLAHE(src_img)
         plate_number = lp_ocr(crop=src_img)
         pred[i] = plate_number[0] if plate_number[0] != 'n' else ''
+    
     acc, all_correct, _ = license_plate_ocr_evaluation(pred=pred, gth=labels)
 
-    print(f"Accuracy : {acc}, all correction rate: {all_correct}")
+    print(f"{title},{acc},{all_correct}")
         
 
 if __name__ == "__main__":
