@@ -7,7 +7,7 @@ import Levenshtein as lev
 _paddle_logger = get_logger()
 _paddle_logger.setLevel(logging.ERROR)
 
-__all__ = ["LicensePlate_OCR", "cer", "all_correction_rate", "license_plate_ocr_evaluation"]
+__all__ = ["LicensePlate_OCR", "cer"]
 
 class LicensePlate_OCR():
     
@@ -83,7 +83,7 @@ class LicensePlate_OCR():
     
 
 
-def cer(pred_gth: list[tuple[str, str]]) -> float:
+def cer(pred:str|list[str], gth:str|list[str], each_dist:bool=False, to_acc:bool=False) -> float|tuple[float, list[int]]:
     """
     Calculate the Character Error Rate (CER) for a list of predicted and ground truth string pairs.
 
@@ -94,48 +94,7 @@ def cer(pred_gth: list[tuple[str, str]]) -> float:
     Returns:
         float: The Character Error Rate (CER) as a ratio.
     """
-
-    edit_distance = 0
-    N = 0
-
-    for idx, (pred, gth) in enumerate(pred_gth):
-        
-        if len(gth) == 0:
-            raise ValueError(f"Ground truth string of index {idx}: [{gth}] is empty")
-    
-        edit_distance += lev.distance(gth, pred)
-        N += len(gth)
-    
-
-    return edit_distance / N if N > 0 else float('inf')
-
-
-def all_correction_rate(pred_gth: list[tuple[str, str]]) -> tuple[list[int],float]:
-
-    N = len(pred_gth)
-    all_correct = [idx for idx, (pred, gth) in enumerate(pred_gth) if pred == gth]
-
-    return all_correct, len(all_correct) / N
-
-
-def license_plate_ocr_evaluation(pred:str|list[str], gth:str|list[str])-> tuple[float, float, list[int]]:
-    """
-    Args:
-        - pred: prediction string, either a single str or a list of str
-        - gth: corresponding groundtruth string, either a single str or a list of str  
-    
-    Returns:
-        tuple of:
-        - ocr accuracy (float)
-            - 1- CER
-        - all correct rate (float)
-            - how many samples are all correct 
-            - if ```pred``` and ```gth``` are both str, then it is a binary value: 1 or 0
-        - all correct samples (list[int])
-            - the indices of the sample that all character is predicted correct.
-    """
     pred_gth:list[tuple[str, str]] = None
-    
     if isinstance(pred, list) and isinstance(gth, list):
         assert len(pred) == len(gth)
         pred_gth = list(zip(pred, gth))
@@ -146,9 +105,15 @@ def license_plate_ocr_evaluation(pred:str|list[str], gth:str|list[str])-> tuple[
     else:
         raise ValueError("pred and gth should either be both a single str or both a list of str")
 
-        
-    e = cer(pred_gth=pred_gth)
-    acc = 1-e
-    all_correct_samples, all_correct_r = all_correction_rate(pred_gth=pred_gth)
-    return acc, all_correct_r, all_correct_samples
+
+    edit_distances, Ns =  map(list, zip(*[
+        (lev.distance(gth, pred), len(gth)) 
+        for (pred, gth) in pred_gth
+    ] ))
+    
+    r = sum(edit_distances)/sum(Ns) if sum(Ns) > 0 else float('inf')
+    if to_acc:
+        r = 1-r
+    
+    return r if not each_dist else (r, edit_distances)
 
