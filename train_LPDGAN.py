@@ -3,7 +3,6 @@ Refactoring from https://github.com/haoyGONG/LPDGAN.git
 """
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-import json
 import random
 import time
 from tqdm import tqdm
@@ -97,25 +96,26 @@ def main(args:Namespace):
     
     total_iters = 0
     acc = 0
+    print_flag = 0
+    save_flag = 0
     for epoch in range(1, args.n_epochs + args.n_epochs_decay + 1):
         epoch_start_time = time.time()
-        epoch_iter = 0
-        
         lpdgan.update_learning_rate(logger=logger)
-        for data in tqdm(trainloader):
-            
-            total_iters += args.batch_size
-            epoch_iter += args.batch_size
+        bar = tqdm(trainloader)
+        for data in bar:
+            n_samples = len(data['A_paths'])
+            total_iters += n_samples
             lpdgan.set_input(data)
             lpdgan.optimize_parameters()
-
-            if total_iters % args.print_freq == 0:
+            bar.set_postfix(ordered_dict={"iters":total_iters})
+            if total_iters // args.print_freq > print_flag:
                 logger.info(f"loss {total_iters} : {lpdgan.get_current_losses()}")
+                print_flag = total_iters//args.print_freq
 
-            if total_iters % args.save_latest_freq == 0:
+            if  total_iters // args.save_freq > save_flag:
                 if val_loader is None:
                     logger.info(f"saving the latest model (epoch {epoch} total_iters {total_iters})")
-                    prefix = f'iter_{total_iters}' if args.save_by_iter else 'latest'
+                    prefix = f'iter_{total_iters}'
                     lpdgan.save_networks(save_dir = args.model_save_root/prefix)
                 else:
                     logger.info(f"validation at {total_iters}")
@@ -127,6 +127,7 @@ def main(args:Namespace):
                         lpdgan.save_networks(save_dir=args.model_save_root/"ocr_best")
                     
                     Swin_Generator.train()
+                save_flag = total_iters // args.save_freq
 
         if epoch % args.save_epoch_freq == 0:
             if val_loader is None:
@@ -169,9 +170,8 @@ if __name__ == "__main__":
                         help='learning rate policy. [linear | step | plateau | cosine]')
 
     # save mode 
-    parser.add_argument('--save_by_iter', action='store_true')
     parser.add_argument('--save_epoch_freq', type=int, default=5)
-    parser.add_argument('--save_latest_freq', type=int, default=5000)
+    parser.add_argument('--save_freq', type=int, default=5000)
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     
     # load pretrained model
