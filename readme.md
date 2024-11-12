@@ -30,6 +30,20 @@
     - ```~/.paddleocr/whl/det/en/en_PP-OCRv3_det_infer.tar```
     - ```~/.paddleocr/whl/rec/en/en_PP-OCRv4_rec_infer.tar```
 
+## NOTE
+I have modify the code from paddleOCR :
+[paddleocr/ppocr/postprocess/rec_postprocess.py](https://github.com/PaddlePaddle/PaddleOCR/blob/0accd260000a627d0bcbdaad5b042b6e2f56ac3b/ppocr/postprocess/rec_postprocess.py#L186) 
+from 
+```
+result_list.append((text, np.mean(conf_list).tolist()))
+```
+to 
+```
+result_list.append((text, np.mean(conf_list).tolist(), conf_list))
+```
+
+For getting logit for each detected-character
+
 ## Deblur
 - The LPDGAN model (paper: [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) is used for deblurring license plates to enhance the accuracy of OCR-based license plate recognition.
 ### Train:
