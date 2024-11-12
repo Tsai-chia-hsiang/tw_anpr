@@ -7,9 +7,10 @@ import torch
 from torchvision import transforms
 import json
 import easyocr
-from logging import Logger
 import torch.nn as nn
 from .sp import Spatial_Pyramid_cv2
+
+__all__ = ["LP_Deblur_Inference_Dataset", "LP_Deblur_OCR_Valiation_Dataset", "LP_Deblur_Dataset"]
 
 def get_easy_ocr_rcnn():
     reader = easyocr.Reader(['en'], gpu=False)  # You can set gpu=True if you have a GPU
@@ -23,59 +24,53 @@ def get_easy_ocr_rcnn():
 
 flatten2D = lambda  nested_list: [item for sublist in nested_list for item in sublist]
 
-class LP_Deblur_OCR_Valiation_set(Dataset):
-    def __init__(self, imgs:list[Path], labels:list[Path], org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180):
+class LP_Deblur_Inference_Dataset(Dataset):
+    def __init__(self, imgs:list[Path], org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180):
         super().__init__()
-        self.imgs = imgs
-        self.labels = labels
         self.sp = Spatial_Pyramid_cv2(org_size=org_size, origin_brightness=on_brightness)
+        self.imgs = imgs
     
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.imgs)
     
     def __getitem__(self, index) -> dict[str, torch.Tensor|str]:
         blur_img = cv2.imread(self.imgs[index]) 
         r = self.sp(img=blur_img, L=3, map_key="A")
-        r['gth'] = self.labels[index]
+        r['path'] = str(self.imgs[index])
         return r
+
+class LP_Deblur_OCR_Valiation_Dataset(LP_Deblur_Inference_Dataset):
+    
+    def __init__(self, imgs:list[Path], labels:list[str], org_size = (224, 112), on_brightness = 180):
+        super().__init__(imgs, org_size, on_brightness)
+        self.labels = labels
+        assert len(labels) == len(self.imgs)
+
+    def __getitem__(self, index) -> dict[str, torch.Tensor|str]:
+        sp_img = super().__getitem__(index)
+        sp_img['gth'] = self.labels[index]
+        return sp_img
     
     @classmethod
-    def make_val_ocr_dataset(cls, val_dataset_root:Optional[Path]=None, label_file:Optional[Path]=None, org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180, logger:Optional[Logger]=None) -> "LP_Deblur_OCR_Valiation_set"|None:
+    def build_dataset(cls, dataroot:Path, label_file:os.PathLike, org_size = (224, 112), on_brightness = 180) -> "LP_Deblur_OCR_Valiation_Dataset":
         
-        if val_dataset_root is None or label_file is None:
-            if logger is not None:
-                logger.info("No valiation dataset, return None as validation set")
-            else:
-                print("No valiation dataset, return None as validation set")
+        if label_file is None or dataroot is None:
             return None
         
-        if not val_dataset_root.is_dir():
-            if logger is not None:
-                logger.info(f"No such {val_dataset_root} a dir, return None as validation set")
-            else:
-                print(f"No such {val_dataset_root} a dir, return None as validation set")
+        if not dataroot.is_dir():
             return None
         
-        if not label_file.is_file():
-            if logger is not None:
-                logger.info(f"No such {label_file} a label file, return None as validation set")
-            else:
-                print(f"No such {label_file} a label file, return None as validation set")
+        if not os.path.exists(str(label_file)):
             return None
         
-        labels:dict[str, str] = None
+        l:dict[str, str] = None
         with open(label_file, "r") as f:
-            labels = json.load(f)
-        
-        imgs = [val_dataset_root/i for i in list(labels.keys())]
-        plate_num = list(labels.values())
+            l= json.load(f)
+        imgs = [dataroot/i for i in l.keys()]
+        labels = list(l.values())
+        return cls(imgs=imgs, labels=labels, org_size=org_size, on_brightness=on_brightness)
 
-        return cls(imgs=imgs, labels = plate_num, org_size=org_size, on_brightness=on_brightness)
-
-
-
-
-class LPBlurDataset(Dataset):
+class LP_Deblur_Dataset(Dataset):
     
     def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
         
