@@ -5,12 +5,12 @@ from typing import Optional, Literal
 from torch.utils.data import Dataset
 import torch
 from torchvision import transforms
-import numpy as np
-from PIL import Image
-import pandas as pd
+import json
 import easyocr
 import torch.nn as nn
 from .sp import Spatial_Pyramid_cv2
+
+__all__ = ["LP_Deblur_Inference_Dataset", "LP_Deblur_OCR_Valiation_Dataset", "LP_Deblur_Dataset"]
 
 def get_easy_ocr_rcnn():
     reader = easyocr.Reader(['en'], gpu=False)  # You can set gpu=True if you have a GPU
@@ -24,16 +24,61 @@ def get_easy_ocr_rcnn():
 
 flatten2D = lambda  nested_list: [item for sublist in nested_list for item in sublist]
 
-
-class CruiserLPBlurDataset(Dataset):
+class LP_Deblur_Inference_Dataset(Dataset):
+    def __init__(self, imgs:list[Path], org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180):
+        super().__init__()
+        self.sp = Spatial_Pyramid_cv2(org_size=org_size, origin_brightness=on_brightness)
+        self.imgs = imgs
     
-    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test', 'inference']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
+    def __len__(self) -> int:
+        return len(self.imgs)
+    
+    def __getitem__(self, index) -> dict[str, torch.Tensor|str]:
+        blur_img = cv2.imread(self.imgs[index]) 
+        r = self.sp(img=blur_img, L=3, map_key="A")
+        r['path'] = str(self.imgs[index])
+        return r
+
+class LP_Deblur_OCR_Valiation_Dataset(LP_Deblur_Inference_Dataset):
+    
+    def __init__(self, imgs:list[Path], labels:list[str], org_size = (224, 112), on_brightness = 180):
+        super().__init__(imgs, org_size, on_brightness)
+        self.labels = labels
+        assert len(labels) == len(self.imgs)
+
+    def __getitem__(self, index) -> dict[str, torch.Tensor|str]:
+        sp_img = super().__getitem__(index)
+        sp_img['gth'] = self.labels[index]
+        return sp_img
+    
+    @classmethod
+    def build_dataset(cls, dataroot:Path, label_file:os.PathLike, org_size = (224, 112), on_brightness = 180) -> "LP_Deblur_OCR_Valiation_Dataset":
+        
+        if label_file is None or dataroot is None:
+            return None
+        
+        if not dataroot.is_dir():
+            return None
+        
+        if not os.path.exists(str(label_file)):
+            return None
+        
+        l:dict[str, str] = None
+        with open(label_file, "r") as f:
+            l= json.load(f)
+        imgs = [dataroot/i for i in l.keys()]
+        labels = list(l.values())
+        return cls(imgs=imgs, labels=labels, org_size=org_size, on_brightness=on_brightness)
+
+class LP_Deblur_Dataset(Dataset):
+    
+    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
         
         super().__init__()
         self.mode = mode
         self.org_size = org_size
         self.text_crnn, self.advp = None ,None
-        self.need_gth = self.mode in ["train", "test"]
+        self.need_gth = self.mode == "train"
         if self.need_gth:
             self.text_crnn = get_easy_ocr_rcnn()
             self.advp = nn.AdaptiveMaxPool2d((21, 1))

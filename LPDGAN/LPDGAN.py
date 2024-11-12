@@ -60,7 +60,7 @@ class SwinTrans_G(nn.Module):
         return [tensor2img(fake_Bi, to_cv2=to_cv2) for fake_Bi in fake_B]
         
 
-class LPDGAN(nn.Module):
+class LPDGAN_Trainer(nn.Module):
     
     def __init__(
             self, logger:Logger, netG:SwinTrans_G, pretrained_dir:Path ,epochs_policy:dict[str, str], 

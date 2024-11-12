@@ -75,42 +75,16 @@ Using the command: ```python train_LPDGAN.py```
     - ```--n_epochs``` & ```--n_epochs_decay``` :
         The epochs that using origin lr and the epochs that using the decay the lr
     - ```--ave_epoch_freq``` :
-        How many epoch should save the ckpt
+        How many epoch should validate once
     
     - ```--model_save_root``` :
         The root to save model
+    - ```--val_data_root``` : same as the description of ```--data_root``` in Evaluation part 
+    - ```label_file``` : same as the description in Evaluation part 
 
+E.g., ```python train_LPDGAN.py --model_save_root ./LPDGAN/checkpoints/exp --save_epoch_freq 10 --val_data_root ./dataset/third_party/blur/ --label_file ./dataset/third_party/label.json```
 
-E.g., ```python train_LPDGAN.py --model_save_root ./LPDGAN/checkpoints/exp --save_epoch_freq 10```
-
-Then it will save the models from different epochs like this way:
-```
-    .
-    └── LPDGAN/
-        └── checkpoints/
-            └── exp/
-                ├── epoch_10/
-                │   ├── netG.pth
-                │   ├── netD.pth
-                │   └── ...
-                ├── epoch_20/
-                │   ├── netG.pth
-                │   ├── netD.pth
-                │   └── ...
-                ├── epoch_30/
-                │   ├── netG.pth
-                │   ├── netD.pth
-                │   └── ...
-                ├── .../
-                │   ├── 1.jpg
-                │   ├── 2.jpg
-                │   └── ...
-                |
-                ├── latest/
-                │   ├── netG.pth
-                │   ├── netD.pth
-                │   └── ...
-``` 
+Then it will save the epoch with the __best validation OCR accuracy__ among the validated epochs.
 
 ### Evaluation: Using OCR performance:
   - Since the downstream task involves OCR for license plate recognition, we use OCR accuracy (1 - CER) as the evaluation metric on deblurred license plate images. Image restoration metrics like SSIM, PSNR, and Perceptual Loss are not used in this evaluation.
