@@ -10,11 +10,27 @@ from argparse import ArgumentParser, Namespace
 from torch.utils.data import DataLoader
 from pathlib import Path
 from logging import Logger
-from LPDGAN.data.LPBlur_dataset import LPBlurDataset, LP_Deblur_OCR_Valiation_set
-from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN, LPDGAN_DEFALUT_CKPT_DIR
+from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset,\
+    SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR
 from LPDGAN.logger import get_logger, remove_old_tf_evenfile
+from anpr.ocr import cer, LicensePlate_OCR
 
+ocr_model = LicensePlate_OCR()
 
+def ocr_validation(db_model:SwinTrans_G, val_loader:LP_Deblur_OCR_Valiation_Dataset) -> float:
+    pred = []
+    gth = []
+    db_model.eval()
+    for data in val_loader:
+        imgs = db_model.batch_inference(x=data)
+        for img in imgs:
+            txt = ocr_model(img)[0]
+            if txt == 'n':
+                txt = ''
+            pred.append(txt)  
+        gth += list(data['gth']) 
+    acc = cer(pred=pred, gth=gth, to_acc=True)
+    return acc
 
 def main(args:Namespace):
     
@@ -24,16 +40,16 @@ def main(args:Namespace):
     logger.info(f"{args}")
     
     dataset_root:Path = args.data_root
-    dataset = LPBlurDataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
+    dataset = LP_Deblur_Dataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
     logger.info(f'The number of training pairs = {len(dataset)}')
 
-    val_dataset = LP_Deblur_OCR_Valiation_set.make_val_ocr_dataset(
-        val_dataset_root=args.val_data_root,
-        label_file=args.label_file,
-        logger=logger
+    val_dataset = LP_Deblur_OCR_Valiation_Dataset.build_dataset(
+        dataroot=args.val_data_root,
+        label_file=args.label_file
     )
     val_loader = None
     if val_dataset is not None:
+        logger.info(f"validation set : {args.val_data_root}, label:{args.label_file}")
         logger.info(f"Validation number : {len(val_dataset)}")
         val_loader = DataLoader(
             dataset=val_dataset, batch_size=args.batch_size, 
@@ -44,14 +60,14 @@ def main(args:Namespace):
         shuffle=True, num_workers=int(args.num_threads)
     )
     
-    
+    pretrained_ckpt=args.pretrained_dir/f"net_G.pth" if args.pretrained_dir is not None else None
+    #Path("LPDGAN/checkpoints/diff_blur/190_net_G.pth")
     Swin_Generator = SwinTrans_G(
-        pretrained_ckpt=args.pretrained_dir/f"net_G.pth" \
-        if args.pretrained_dir is not None else None,
+        pretrained_ckpt=pretrained_ckpt,
         gpu_id=args.gpu_id, mode='train', on_size=(224, 112)
     )
 
-    lpdgan = LPDGAN(
+    lpdgan = LPDGAN_Trainer(
         netG=Swin_Generator, logger=logger, pretrained_dir=args.pretrained_dir,  
         gan_mode=args.gan_mode, epochs_policy= {
             'n_epochs':args.n_epochs,
@@ -63,12 +79,14 @@ def main(args:Namespace):
     )
     
     total_iters = 0
+    acc = 0
     for epoch in range(1, args.n_epochs + args.n_epochs_decay + 1):
         epoch_start_time = time.time()
         epoch_iter = 0
-
+        
         lpdgan.update_learning_rate(logger=logger)
         for data in tqdm(trainloader):
+            
             total_iters += args.batch_size
             epoch_iter += args.batch_size
             lpdgan.set_input(data)
@@ -78,15 +96,35 @@ def main(args:Namespace):
                 logger.info(f"loss {total_iters} : {lpdgan.get_current_losses()}")
 
             if total_iters % args.save_latest_freq == 0:
-                logger.info(f"saving the latest model (epoch {epoch} total_iters {total_iters})")
-                prefix = f'iter_{total_iters}' if args.save_by_iter else 'latest'
-                lpdgan.save_networks(save_dir = args.model_save_root/prefix)
-        
-        
+                if val_loader is None:
+                    logger.info(f"saving the latest model (epoch {epoch} total_iters {total_iters})")
+                    prefix = f'iter_{total_iters}' if args.save_by_iter else 'latest'
+                    lpdgan.save_networks(save_dir = args.model_save_root/prefix)
+                else:
+                    logger.info(f"validation at {total_iters}")
+                    acc_iter = ocr_validation(db_model= Swin_Generator,val_loader=val_loader)
+                    logger.info(f"OCR Accuracy : {acc_iter}")
+                    if acc_iter >= acc:
+                        logger.info("update")
+                        acc = acc_iter
+                        lpdgan.save_networks(save_dir=args.model_save_root/"ocr_best")
+                    
+                    Swin_Generator.train()
+
         if epoch % args.save_epoch_freq == 0:
-            logger.info(f"saving the model at the end of epoch {epoch}, iters {total_iters}")
-            lpdgan.save_networks( args.model_save_root/'latest')
-            lpdgan.save_networks( args.model_save_root/f'epoch_{epoch}')
+            if val_loader is None:
+                logger.info(f"saving the model at the end of epoch {epoch}, iters {total_iters}")
+                lpdgan.save_networks( args.model_save_root/'latest')
+                lpdgan.save_networks( args.model_save_root/f'epoch_{epoch}')
+            else:
+                logger.info(f"validation at epoch {epoch}")
+                acc_iter = ocr_validation(db_model= Swin_Generator,val_loader=val_loader)
+                logger.info(f"OCR Accuracy : {acc_iter}")
+                if acc_iter >= acc:
+                    logger.info("update")
+                    acc = acc_iter
+                    lpdgan.save_networks(save_dir=args.model_save_root/"ocr_best")
+                Swin_Generator.train()
 
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
 
@@ -115,7 +153,7 @@ if __name__ == "__main__":
 
     # save mode 
     parser.add_argument('--save_by_iter', action='store_true')
-    parser.add_argument('--save_epoch_freq', type=int, default=10)
+    parser.add_argument('--save_epoch_freq', type=int, default=5)
     parser.add_argument('--save_latest_freq', type=int, default=5000)
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     
@@ -139,6 +177,4 @@ if __name__ == "__main__":
     if args.blur_aug == "all":
         args.blur_aug = [_.name for _ in args.data_root.iterdir() if _.name != "sharp"]
     
-    print(args)
-    _ = input("OK ?")
     main(args)
