@@ -3,6 +3,7 @@ Refactoring from https://github.com/haoyGONG/LPDGAN.git
 """
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
+import shutil
 import random
 from typing import Optional, Literal, Any
 from logging import Logger
@@ -17,7 +18,7 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset,\
     SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_Evaluator
-from LPDGAN.logger import get_logger, remove_old_tf_evenfile
+from LPDGAN.logger import get_logger
 from imgproc_utils import L_CLAHE
 
 def reproducible(seed:int = 891122):
@@ -69,8 +70,12 @@ def evaluation_and_save(
 
 def main(args:Namespace):
     
+    # if there is a same name, replace it by delete the old one first
+    if args.model_save_root.is_dir():
+        shutil.rmtree(args.model_save_root)
+    
     args.model_save_root.mkdir(parents=True, exist_ok=True)
-    remove_old_tf_evenfile(directory=args.model_save_root)
+ 
     logger = get_logger(name=__name__, file=args.model_save_root/"training.log")
     tensorboard_writer = SummaryWriter(log_dir=args.model_save_root)
     
@@ -132,8 +137,9 @@ def main(args:Namespace):
 
             bar.set_postfix(ordered_dict={"iters":total_iters})
             if total_iters // args.print_freq > print_flag:
-                iter_loss = lpdgan.get_current_losses(tf_board=tensorboard_writer, iters=total_iters)
+                iter_loss = lpdgan.get_current_losses()
                 tensorboard_writer.add_scalars("Losses",iter_loss, total_iters)
+                logger.info(f"iters:{total_iters}:{iter_loss}")
                 print_flag = total_iters//args.print_freq
 
             if  total_iters // args.save_freq > save_flag:
