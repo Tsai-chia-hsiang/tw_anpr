@@ -5,7 +5,7 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import shutil
 import random
-from typing import Optional, Literal, Any
+from typing import Optional
 from logging import Logger
 import time
 from tqdm import tqdm
@@ -109,13 +109,14 @@ def main(args:Namespace):
 
 
     Swin_Generator = SwinTrans_G(
-        pretrained_ckpt=args.pretrained_ckpt,
+        pretrained_ckpt = args.pretrained_dir if args.pretrained_dir is None else args.pretrained_dir/"net_G.pth" ,
         gpu_id=args.gpu_id, mode='train', 
         on_size=(224, 112)
     )
 
     lpdgan = LPDGAN_Trainer(
-        netG=Swin_Generator, logger=logger, pretrained_dir=args.pretrained_dir,  
+        netG=Swin_Generator, logger=logger, 
+        pretrained_dir= args.pretrained_dir  ,  
         gan_mode=args.gan_mode, epochs_policy= {
             'n_epochs':args.n_epochs,
             'n_epochs_decay':args.n_epochs_decay,
@@ -211,7 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     
     # load pretrained model
-    parser.add_argument('--pretrained_ckpt', type=Path, default=None)
+    parser.add_argument('--pretrained_dir', type=Path, default=None)
     # lr
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate for adam')

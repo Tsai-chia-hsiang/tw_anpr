@@ -83,7 +83,7 @@ class LP_Deblur_OCR_Valiation_Dataset(LP_Deblur_Inference_Dataset):
 
 class LP_Deblur_Dataset(Dataset):
     
-    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
+    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None, cache=True) -> None:
         
         super().__init__()
         self.mode = mode
@@ -92,13 +92,21 @@ class LP_Deblur_Dataset(Dataset):
         self.ocr = PaddleOCR(use_angle_cls=True, lang="en")
  
         self.blur_aug = blur_aug
-        self.sharp_root = Path(data_root)/"sharp"
-        self.txt_info = {}
-        for imgid in tqdm([_.name for _ in (self.sharp_root).glob("*.jpg")]):
-            txt_tensor = self.get_text_info(img=self.sharp_root/imgid) 
-            if len(txt_tensor):
-                self.txt_info[imgid] = txt_tensor
-      
+        self.sharp_root = data_root/"sharp"
+        log=data_root/"cache.pth"
+        self.txt_info = None
+        
+        if log.is_file():
+            self.txt_info = torch.load(log)
+        else:
+            self.txt_info = {}
+            for imgid in tqdm([_.name for _ in (self.sharp_root).glob("*.jpg")]):
+                txt_tensor = self.get_text_info(img=self.sharp_root/imgid) 
+                if len(txt_tensor):
+                    self.txt_info[imgid] = txt_tensor
+            if cache:
+                torch.save(self.txt_info, log)
+            
         self.sharp_blur_pairs: list[tuple[Path, Path]] = flatten2D([
             [
                 (self.sharp_root/f"{imgid}", Path(data_root)/f"{b}"/f"{imgid}") 

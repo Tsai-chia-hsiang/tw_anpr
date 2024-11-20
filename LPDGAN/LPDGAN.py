@@ -4,6 +4,7 @@ from tqdm import tqdm
 import os
 from logging import Logger
 import functools
+import copy
 import torch.nn as nn
 import numpy as np
 import torch
@@ -398,7 +399,7 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
         super().__init__()
         self.ocr = LicensePlate_OCR()
         self.preprocess = ocr_preprocess
-        self.current_best = {
+        self._current_best = {
             'cer':current_best,
             'lcs':current_best
         }
@@ -406,6 +407,9 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
             'cer':[],
             'lcs':[]
         }
+    @property
+    def current_best(self):
+        return copy.deepcopy(self._current_best)
         
     def val_LP_db_dataset(self, val_loader:DataLoader, swintrans_g:SwinTrans_G) -> dict[str, float]:
         pred = []
