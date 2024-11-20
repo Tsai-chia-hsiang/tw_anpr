@@ -1,6 +1,5 @@
-- [x] make the test dataset from the private data and get the CER for blurred OCR  result 
-- [x] finishing the refactoration about training script for LPDGAN
-- [x] adjust the augmentaiton method of training pair so that each clean image is paired with versions of the same image at different levels of blur.
+- [] Check new dataset, it seems having some problem
+- [] Try https://github.com/frotms/PaddleOCR2Pytorch.git to see if paddleOCR can be converted to torch and utilze the training script
 
 
 [readme(English)](../readme.md)
