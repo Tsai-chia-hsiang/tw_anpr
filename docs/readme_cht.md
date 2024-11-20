@@ -141,8 +141,6 @@ e.g.:
 **以上指令 demo 用的圖片由於是隱私的資料及，如果真的想執行，請到 https://drive.google.com/file/d/1W7kjO5eJXpqG11BtDkuL0MsdQdxB7SL2/view?usp=sharing 要求權限。
 - 請說明身分
 
-## TODO
-[TODO](./TODO.md)
 
 ## Acknowledgments
 
