@@ -431,9 +431,9 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
         
         for k, v in accs.items():
             self.hist[k].append(v)
-            if v >= self.current_best[k]:
+            if v >= self._current_best[k]:
                 ret[k] =  LPD_OCR_ACC_Evaluator.update_signal
-                self.current_best[k] = v
+                self._current_best[k] = v
             else:
                 ret[k] = LPD_OCR_ACC_Evaluator.keep_signal
         
