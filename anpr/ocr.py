@@ -1,5 +1,7 @@
 import numpy as np
+import pylcs
 from paddleocr import PaddleOCR
+from typing import Literal
 import logging
 from paddleocr.ppocr.utils.logging import get_logger
 import Levenshtein as lev
@@ -7,7 +9,7 @@ import Levenshtein as lev
 _paddle_logger = get_logger()
 _paddle_logger.setLevel(logging.ERROR)
 
-__all__ = ["LicensePlate_OCR", "cer"]
+__all__ = ["LicensePlate_OCR", "OCR_Evaluator"]
 
 class LicensePlate_OCR():
     
@@ -58,64 +60,77 @@ class LicensePlate_OCR():
             return 0
         return (d[0][1][0] - d[0][0][0])*(d[0][2][1] - d[0][0][1])
 
-    def paddle(self, crop:np.ndarray) -> tuple[str, float]:
-    
-        result = self.paddle_ocr_model.ocr(crop, cls=True)[0]
+    def __call__(self, crop:np.ndarray, post_correction:bool=True, preprocess_pipeline=None) -> tuple[str, str, list[float]]:
         
+        result = self.paddle_ocr_model.ocr(
+            preprocess_pipeline(crop) if preprocess_pipeline is not None else crop, 
+            cls=False
+        )[0]
+
         if result is None:
-            return (None, -1.0, [])
-
-        main_patch = np.argmax(np.array([self._count_area(r) for r in result]))
-        return result[main_patch][1]
+            return ('', '', [-1.0]) 
+        
+        raw_txt, conf, prob = result[np.argmax(np.array([self._count_area(r) for r in result]))][1]
+        raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara)).upper()
+        txt = self.pattern_correction(plate_number=raw_txt) \
+            if ( post_correction and len(raw_txt) > 5) else raw_txt
     
-    def __call__(self, crop:np.ndarray, post_correction:bool=True) -> tuple[str, str, float]:
+        return txt, raw_txt, prob
 
-        raw_txt, conf, logit = self.paddle(crop=crop)
-        if raw_txt is not None:
-            txt = None
-            raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara)).upper()
-            if post_correction and len(raw_txt) > 5:
-                txt = self.pattern_correction(plate_number=raw_txt)
-            else:
-                txt = raw_txt
-            return txt, raw_txt, conf
+
+class OCR_Evaluator():
+    def __init__(self) -> None:
+        pass
+    def __call__(self, pred:str|list[str], gth:str|list[str], method:Literal['lcs','cer']='cer', detail:bool=False, **kwargs) -> float|list[float, list]:
+        
+        pred_gth:list[tuple[str, str]] = None
+        if isinstance(pred, list) and isinstance(gth, list):
+            assert len(pred) == len(gth)
+            pred_gth = list(zip(pred, gth))
+        
+        elif isinstance(pred_gth, str) and isinstance(gth, str):
+            pred_gth = [(pred, gth)]
         
         else:
-            return 'n', 'n', conf
-    
+            raise ValueError("pred and gth should either be both a single str or both a list of str")
 
+        match method:
+            case 'cer':
+                return OCR_Evaluator.cer(pred_gth=pred_gth, each_dist=detail, to_acc=getattr(kwargs, 'to_acc', False))
+            case 'lcs':
+                return  OCR_Evaluator.lcs_rate(pred_gth=pred_gth, lcs_list=detail)
+            
+    @staticmethod
+    def cer(pred_gth:list[tuple[str, str]], each_dist:bool=False, to_acc:bool=False) -> float|tuple[float, list[int]]:
+        """
+        Calculate the Character Error Rate (CER) for a list of predicted and ground truth string pairs.
 
-def cer(pred:str|list[str], gth:str|list[str], each_dist:bool=False, to_acc:bool=False) -> float|tuple[float, list[int]]:
-    """
-    Calculate the Character Error Rate (CER) for a list of predicted and ground truth string pairs.
+        Args:
+            pred_gth (list of tuple[str, str]): A list where each element is a tuple containing two strings
+                - (prediction string, ground truth string).
 
-    Args:
-        pred_gth (list of tuple[str, str]): A list where each element is a tuple containing two strings
-            - (prediction string, ground truth string).
+        Returns:
+            float: The Character Error Rate (CER) as a ratio.
+        """
+       
 
-    Returns:
-        float: The Character Error Rate (CER) as a ratio.
-    """
-    pred_gth:list[tuple[str, str]] = None
-    if isinstance(pred, list) and isinstance(gth, list):
-        assert len(pred) == len(gth)
-        pred_gth = list(zip(pred, gth))
-    
-    elif isinstance(pred_gth, str) and isinstance(gth, str):
-        pred_gth = [(pred, gth)]
-    
-    else:
-        raise ValueError("pred and gth should either be both a single str or both a list of str")
+        edit_distances, Ns =  map(list, zip(*[
+            (lev.distance(gth, pred), len(gth)) 
+            for (pred, gth) in pred_gth
+        ] ))
+        
+        r = sum(edit_distances)/sum(Ns) if sum(Ns) > 0 else float('inf')
+        if to_acc:
+            r = 1-r
+        
+        return r if not each_dist else (r, edit_distances)
 
+    @staticmethod
+    def lcs_rate(pred_gth:list[tuple[str, str]], lcs_list:bool=False)->float|tuple[float, list[int]]:
 
-    edit_distances, Ns =  map(list, zip(*[
-        (lev.distance(gth, pred), len(gth)) 
-        for (pred, gth) in pred_gth
-    ] ))
-    
-    r = sum(edit_distances)/sum(Ns) if sum(Ns) > 0 else float('inf')
-    if to_acc:
-        r = 1-r
-    
-    return r if not each_dist else (r, edit_distances)
-
+        lcs, Ns =  map(list, zip(*[
+            (pylcs.lcs(gth, pred), len(gth)) 
+            for (pred, gth) in pred_gth
+        ] ))
+        acc = sum(lcs)/sum(Ns) if sum(Ns) > 0 else float('inf')
+        return acc if not lcs_list else (acc, lcs_list)
