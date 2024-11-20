@@ -12,11 +12,13 @@ __all__ = ["LicensePlate_OCR", "cer"]
 class LicensePlate_OCR():
     
     def __init__(self) -> None:
-        self._noise_chara = '.,: -'
+        self._noise_chara = '.,: -/\\~!;'
         self.paddle_ocr_model = PaddleOCR(use_angle_cls=True, lang="en")
         self._ENG2DIG = {
             'O': "0",
             'I': "1",
+            '[': "1",
+            ']': "7",
             "Z": "2",
             "S": "5",
             "B": "8",
@@ -71,7 +73,7 @@ class LicensePlate_OCR():
         raw_txt, conf, logit = self.paddle(crop=crop)
         if raw_txt is not None:
             txt = None
-            raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara))
+            raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara)).upper()
             if post_correction and len(raw_txt) > 5:
                 txt = self.pattern_correction(plate_number=raw_txt)
             else:
