@@ -1,4 +1,4 @@
-from anpr import LicensePlate_OCR, cer
+from anpr import LicensePlate_OCR, OCR_Evaluator
 import Levenshtein as lev
 from typing import Optional
 from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN_DEFALUT_CKPT_DIR
@@ -53,6 +53,7 @@ def main(args:Namespace):
     imgs = list(map(lambda x:args.data_root/x, list(img_label.keys())))
     labels = list(img_label.values())
     lp_ocr = LicensePlate_OCR()
+    ocr_eva = OCR_Evaluator()
     
     deblur_swintransformer = None
     
@@ -77,16 +78,13 @@ def main(args:Namespace):
                 src_img = cv2.resize(src_img, (224,112))
             src_img = normalize_brightness(src_img)
         
-        src_img = L_CLAHE(src_img)
-        plate_number = lp_ocr(crop=src_img)
+        plate_number = lp_ocr(crop=src_img, preprocess_pipeline=L_CLAHE)
         pred[i] = plate_number[0] if plate_number[0] != 'n' else ''
     
-    acc, edit_distances = cer(pred=pred, gth=labels, each_dist=True, to_acc=True)
-    pred = [f"{p}({e})" if e > 0 else f"{p}" for p, e in zip(pred, edit_distances)]
-    all_correct_rate = 1 - np.count_nonzero(edit_distances)/len(edit_distances)
-    print(f"{title},{acc},{all_correct_rate}")
+    acc = ocr_eva(pred=pred, gth=labels, method=args.eva, to_acc=True)
+    print(f"{title},{acc}")
     
-    q = np.argsort(np.asarray(edit_distances))
+    """q = np.argsort(np.asarray(edit_distances))
     edit_distances = np.asarray(edit_distances)[q]
     vis_dir = Path("dataset/experiments")/f"{title}"
     vis_dir.mkdir(parents=True, exist_ok=True)
@@ -100,15 +98,13 @@ def main(args:Namespace):
             pivot = int(len(q)*qi)
             idx = q[pivot-3:pivot+2]
         canvas = make_topk_vis_canvas(idxs=idx, imgs=imgs, labels=labels, pred=pred, lp=lp_ocr, deblur_swintransformer=deblur_swintransformer)
-        cv2.imwrite(vis_dir/f"q{i}.png", canvas)
-
-
-        
+        cv2.imwrite(vis_dir/f"q{i}.png", canvas)"""
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root", type=Path)
     parser.add_argument("--label_file", type=Path)
+    parser.add_argument("--eva", type=str, default='lcs')
     parser.add_argument("--deblur_ckpt_dir", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     parser.add_argument("--deblur", type=Path, default=None)
     parser.add_argument("--gpu", type=int, default=0)
