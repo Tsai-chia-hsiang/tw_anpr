@@ -39,8 +39,7 @@ def recognition_a_car(
     if lpdgan is not None:
         lp = lpdgan.inference(x=lp)
     
-    lp = L_CLAHE(lp)
-    txt, raw_txt, txt_conf = recong(crop=lp)
+    txt, raw_txt, txt_conf = recong(crop=lp, preprocess_pipeline=L_CLAHE)
     
     return (license_plates_box, (txt, raw_txt, txt_conf), lp) if return_lp_crop \
         else (license_plates_box, (txt, raw_txt, txt_conf))
