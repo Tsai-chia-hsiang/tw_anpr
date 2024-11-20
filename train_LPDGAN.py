@@ -4,19 +4,21 @@ Refactoring from https://github.com/haoyGONG/LPDGAN.git
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import random
+from typing import Optional, Literal, Any
+from logging import Logger
 import time
 from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 import torch
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
+import cv2
 from torch.utils.data import DataLoader
 from pathlib import Path
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset,\
-    SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR
+    SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_Evaluator
 from LPDGAN.logger import get_logger, remove_old_tf_evenfile
-from anpr.ocr import cer, LicensePlate_OCR
-
-ocr_model = LicensePlate_OCR()
+from imgproc_utils import L_CLAHE
 
 def reproducible(seed:int = 891122):
     # Set random seeds for reproducibility
@@ -31,56 +33,76 @@ def reproducible(seed:int = 891122):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def evaluation_and_save(
+    lpdgan:LPDGAN_Trainer, val_loader:DataLoader, eva:LPD_OCR_Evaluator, 
+    save_dir:Path, logger:Logger,iters:int, epoch:Optional[int]=None,
+    board:Optional[SummaryWriter]=None, baseline:float=0
+) -> float:
+    if val_loader is not None:
+        # Having a validaiton dataset.
+        # Will first validate the model and decide wether to save 
+        val_msg = f"validation at iteration {iters}"
+        if epoch is not None:
+            val_msg += f"(End of epoch {epoch:3d})"
+        
+        logger.info(val_msg)
+        
+        lpdgan.netG.eval()
+        last_best = eva.current_best
+        acc = eva.val_LP_db_dataset(val_loader=val_loader, swintrans_g=lpdgan.netG, detail=False)
+        update_status = eva.update(acc=acc)
+        logger.info(f"acc : {acc} | baseline: {baseline} | last best: {last_best} | " + update_status)
+        if board is not None:
+            board.add_scalars(
+                f"ocr_acc", {"train":acc, "baseline":baseline},
+                iters
+            )
+        if update_status == LPD_OCR_Evaluator.update_signal:
+            lpdgan.save_networks(save_dir=save_dir)
 
-def ocr_validation(db_model:SwinTrans_G, val_loader:LP_Deblur_OCR_Valiation_Dataset) -> float:
-    pred = []
-    gth = []
-    db_model.eval()
-    for data in val_loader:
-        imgs = db_model.batch_inference(x=data)
-        for img in imgs:
-            txt = ocr_model(img)[0]
-            if txt == 'n':
-                txt = ''
-            pred.append(txt)  
-        gth += list(data['gth']) 
-    acc = cer(pred=pred, gth=gth, to_acc=True)
-    return acc
+        return acc
+    else:
+        # no validation, directly save
+        logger.info(f"no validation set, directly save to {save_dir}")
+        lpdgan.save_networks(save_dir=save_dir)
+        return -1.0
 
 def main(args:Namespace):
     
     args.model_save_root.mkdir(parents=True, exist_ok=True)
+    remove_old_tf_evenfile(directory=args.model_save_root)
     logger = get_logger(name=__name__, file=args.model_save_root/"training.log")
+    tensorboard_writer = SummaryWriter(log_dir=args.model_save_root)
     
     logger.info(f"{args}")
+    
     reproducible(seed=args.seed)
-
+    
     dataset_root:Path = args.data_root
     dataset = LP_Deblur_Dataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
     logger.info(f'The number of training pairs = {len(dataset)}')
-
+    trainloader = DataLoader(
+        dataset=dataset, batch_size=args.val_batch, 
+        shuffle=True, num_workers=int(args.num_threads)
+    )
     val_dataset = LP_Deblur_OCR_Valiation_Dataset.build_dataset(
         dataroot=args.val_data_root,
         label_file=args.label_file
     )
-    val_loader = None
+    validator:LPD_OCR_Evaluator = None
+    val_loader:DataLoader = None
+    
     if val_dataset is not None:
-        logger.info(f"validation set : {args.val_data_root}, label:{args.label_file}")
-        logger.info(f"Validation number : {len(val_dataset)}")
-        val_loader = DataLoader(
-            dataset=val_dataset, batch_size=args.batch_size, 
-            shuffle=False
-        )
-    trainloader = DataLoader(
-        dataset=dataset, batch_size=args.batch_size, 
-        shuffle=True, num_workers=int(args.num_threads)
-    )
+        logger.info(f"validation set : {args.val_data_root}, label:{args.label_file}, num: {len(val_dataset)}")
+        val_loader = DataLoader(dataset=val_dataset, batch_size=args.batch_size, shuffle=False)
+        validator = LPD_OCR_Evaluator(ocr_preprocess=L_CLAHE, metrics=args.eva_metrics, current_best=0.0)
     
     pretrained_ckpt=args.pretrained_dir/f"net_G.pth" if args.pretrained_dir is not None else None
-    #Path("LPDGAN/checkpoints/diff_blur/190_net_G.pth")
+   
     Swin_Generator = SwinTrans_G(
         pretrained_ckpt=pretrained_ckpt,
-        gpu_id=args.gpu_id, mode='train', on_size=(224, 112)
+        gpu_id=args.gpu_id, mode='train', 
+        on_size=(224, 112)
     )
 
     lpdgan = LPDGAN_Trainer(
@@ -95,7 +117,6 @@ def main(args:Namespace):
     )
     
     total_iters = 0
-    acc = 0
     print_flag = 0
     save_flag = 0
     for epoch in range(1, args.n_epochs + args.n_epochs_decay + 1):
@@ -103,46 +124,40 @@ def main(args:Namespace):
         lpdgan.update_learning_rate(logger=logger)
         bar = tqdm(trainloader)
         for data in bar:
+            
             n_samples = len(data['A_paths'])
             total_iters += n_samples
             lpdgan.set_input(data)
             lpdgan.optimize_parameters()
+
             bar.set_postfix(ordered_dict={"iters":total_iters})
             if total_iters // args.print_freq > print_flag:
-                logger.info(f"loss {total_iters} : {lpdgan.get_current_losses()}")
+                iter_loss = lpdgan.get_current_losses(tf_board=tensorboard_writer, iters=total_iters)
+                tensorboard_writer.add_scalars("Losses",iter_loss, total_iters)
                 print_flag = total_iters//args.print_freq
 
             if  total_iters // args.save_freq > save_flag:
-                if val_loader is None:
-                    logger.info(f"saving the latest model (epoch {epoch} total_iters {total_iters})")
-                    prefix = f'iter_{total_iters}'
-                    lpdgan.save_networks(save_dir = args.model_save_root/prefix)
-                else:
-                    logger.info(f"validation at {total_iters}")
-                    acc_iter = ocr_validation(db_model= Swin_Generator,val_loader=val_loader)
-                    logger.info(f"OCR Accuracy : {acc_iter}")
-                    if acc_iter >= acc:
-                        logger.info("update")
-                        acc = acc_iter
-                        lpdgan.save_networks(save_dir=args.model_save_root/"ocr_best")
-                    
-                    Swin_Generator.train()
+                prefix =  "ocr_best" if val_loader is not None else f'iter_{total_iters}'
+
+                evaluation_and_save(
+                    lpdgan=lpdgan, val_loader=val_loader,
+                    eva=validator, save_dir=args.model_save_root/prefix,
+                    iters=total_iters, board=tensorboard_writer,logger=logger,
+                    baseline=args.ocr_baseline
+                )
+                
+                Swin_Generator.train()
                 save_flag = total_iters // args.save_freq
 
         if epoch % args.save_epoch_freq == 0:
-            if val_loader is None:
-                logger.info(f"saving the model at the end of epoch {epoch}, iters {total_iters}")
-                lpdgan.save_networks( args.model_save_root/'latest')
-                lpdgan.save_networks( args.model_save_root/f'epoch_{epoch}')
-            else:
-                logger.info(f"validation at epoch {epoch}")
-                acc_iter = ocr_validation(db_model= Swin_Generator,val_loader=val_loader)
-                logger.info(f"OCR Accuracy : {acc_iter}")
-                if acc_iter >= acc:
-                    logger.info("update")
-                    acc = acc_iter
-                    lpdgan.save_networks(save_dir=args.model_save_root/"ocr_best")
-                Swin_Generator.train()
+            prefix =  "ocr_best" if val_loader is not None else f'epoch_{epoch}'
+            evaluation_and_save(
+                lpdgan=lpdgan, val_loader=val_loader,
+                eva=validator, save_dir=args.model_save_root/prefix,
+                iters=total_iters, board=tensorboard_writer,logger=logger,
+                baseline=args.ocr_baseline, epoch=epoch
+            )
+            Swin_Generator.train()
 
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
         lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
@@ -157,6 +172,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--val_data_root", type=Path, default=None)
     parser.add_argument("--label_file", type=Path, default=None)
+    parser.add_argument("--val_batch", type=int, default=40)
+    parser.add_argument("--eva_metrics", type=str, default='lcs')
+    parser.add_argument("--ocr_baseline", type=float, default=0.51)
 
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
     parser.add_argument("--gpu_id", type=int, default=0)
