@@ -79,9 +79,10 @@ class LicensePlate_OCR():
 
 
 class OCR_Evaluator():
+    
     def __init__(self) -> None:
         pass
-    def __call__(self, pred:str|list[str], gth:str|list[str], method:Literal['lcs','cer']='cer', detail:bool=False, **kwargs) -> float|list[float, list]:
+    def __call__(self, pred:str|list[str], gth:str|list[str], metrics:Literal['lcs','cer']='cer', detail:bool=False, **kwargs) -> float|list[float, list]:
         
         pred_gth:list[tuple[str, str]] = None
         if isinstance(pred, list) and isinstance(gth, list):
@@ -94,7 +95,7 @@ class OCR_Evaluator():
         else:
             raise ValueError("pred and gth should either be both a single str or both a list of str")
 
-        match method:
+        match metrics:
             case 'cer':
                 return OCR_Evaluator.cer(pred_gth=pred_gth, each_dist=detail, to_acc=getattr(kwargs, 'to_acc', False))
             case 'lcs':
