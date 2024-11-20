@@ -4,9 +4,9 @@
 
 
 ## TODO
-- [] Check new dataset, it seems having some problem
-- [] Try https://github.com/frotms/PaddleOCR2Pytorch.git to see if paddleOCR can be converted to torch and utilze the training script
-
+- [ ] Check new dataset, it seems having some problem
+- [ ] Try https://github.com/frotms/PaddleOCR2Pytorch.git to see if paddleOCR can be converted to torch and utilze the training script
+- [ ] Refactoring [LPDGAN_Trainer](./LPDGAN/LPDGAN.py#L69) so that it can take a pretrain project directory and load checkpoints for all components.
 
 ## pipeline:
 <img src="./docs/anplr.png">
