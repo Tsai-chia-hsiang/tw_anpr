@@ -369,3 +369,18 @@ class LPDGAN_Trainer(nn.Module):
             if isinstance(name, str):
                 errors_ret[name] = float(getattr(self, 'loss_' + name))
         return errors_ret
+    
+    def save_optimizers(self, save_dir:Path):
+        """
+        save optimizers and schedulers
+        """
+        save_dir.mkdir(parents=True, exist_ok=True)
+        for opt_name, opt, sched in zip(["G", "D", "D_small"], self.optimizers, self.schedulers):
+            torch.save(
+                opt.state_dict(),
+                save_dir/f"{opt_name}_opt.pth"
+            )
+            torch.save(
+                sched.state_dict(),
+                save_dir/f"{opt_name}_sche.pth"
+            )
