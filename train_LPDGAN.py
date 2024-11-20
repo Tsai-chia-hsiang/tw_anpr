@@ -145,14 +145,14 @@ def main(args:Namespace):
                 Swin_Generator.train()
 
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
-
-
+        lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
+        logger.info(f"Last step optimizers and schedulers are saved at { args.model_save_root/'latest'}")
 
 if __name__ == "__main__":
     
     parser = ArgumentParser()
     # Data path
-    parser.add_argument("--data_root", type=Path, default=Path("./dataset")/"tw_post"/"train")
+    parser.add_argument("--data_root", type=Path, default=Path("./dataset")/"tw"/"new")
     parser.add_argument("--blur_aug", nargs='+', type=str, default='all')
 
     parser.add_argument("--val_data_root", type=Path, default=None)
@@ -162,9 +162,9 @@ if __name__ == "__main__":
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--seed", type=int, default=891122)
     # Batch size & epochs & lr scheduler
-    parser.add_argument("--batch_size", type=int, default=15)
+    parser.add_argument("--batch_size", type=int, default=40)
     parser.add_argument("--n_epochs", type=int, default=100, help='number of epochs with the initial learning rate')
-    parser.add_argument("--n_epochs_decay", type=int, default=100, help='number of epochs to linearly decay learning rate to zero')
+    parser.add_argument("--n_epochs_decay", type=int, default=200, help='number of epochs to linearly decay learning rate to zero')
     parser.add_argument("--lr_decay_iters", type=int, default=50, help='multiply by a gamma every lr_decay_iters iterations')
     parser.add_argument('--lr_policy', type=str, default='linear',
                         help='learning rate policy. [linear | step | plateau | cosine]')
@@ -192,6 +192,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.blur_aug == "all":
-        args.blur_aug = [_.name for _ in args.data_root.iterdir() if _.name != "sharp"]
+        args.blur_aug = [_.name for _ in args.data_root.iterdir() if _.name != "sharp" and _.is_dir()]
     
+    print(args)
+    _ = input("ok ?")
     main(args)
