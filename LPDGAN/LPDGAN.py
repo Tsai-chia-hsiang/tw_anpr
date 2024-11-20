@@ -1,11 +1,13 @@
 from typing import Optional, Literal
 from pathlib import Path
+from tqdm import tqdm
 import os
 from logging import Logger
 import functools
 import torch.nn as nn
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from .models import SwinTransformer_Backbone, get_config_or, load_networks
 from .models.networks import NLayerDiscriminator, \
     PixelDiscriminator, PerceptualLoss, GANLoss, \
@@ -15,6 +17,9 @@ from .models.taming.modules.losses.lpips import OCR_CRAFT_LPIPS
 
 _LPDGAN_DIR_ = Path(os.path.abspath(__file__)).parent
 LPDGAN_DEFALUT_CKPT_DIR = _LPDGAN_DIR_/"checkpoints"
+import sys
+sys.path.append(str(_LPDGAN_DIR_.parent/f"anpr"))
+from anpr import LicensePlate_OCR, OCR_Evaluator
 
 check_gpu_id = lambda gpu_id: gpu_id > -1 and torch.cuda.is_available() and gpu_id < torch.cuda.device_count()
 
@@ -308,12 +313,10 @@ class LPDGAN_Trainer(nn.Module):
         self.optimizer_G.step()
 
     def cal_gp(self, fake_AB, real_AB):
-        r = torch.rand(size=(real_AB.shape[0], 1, 1, 1))
-        r = r.cuda()
+        r = torch.rand(size=(real_AB.shape[0], 1, 1, 1), device=self.device)
         x = (r * real_AB + (1 - r) * fake_AB).requires_grad_(True)
         d = self.netD(x)
-        fake = torch.ones_like(d)
-        fake = fake.cuda()
+        fake = torch.ones_like(d, device=self.device)
         g = torch.autograd.grad(
             outputs=d,
             inputs=x,
@@ -384,3 +387,36 @@ class LPDGAN_Trainer(nn.Module):
                 sched.state_dict(),
                 save_dir/f"{opt_name}_sche.pth"
             )
+
+
+class LPD_OCR_Evaluator(OCR_Evaluator):
+    
+    update_signal = "update"
+    keep_signal = "keep"
+    
+    def __init__(self, ocr_preprocess, metrics:Literal['lcs','cer']='cer', current_best=0) -> None:
+        super().__init__()
+        self.ocr = LicensePlate_OCR()
+        self.metrics = metrics
+        self.preprocess = ocr_preprocess
+        self.current_best = current_best
+        
+    def val_LP_db_dataset(self, val_loader:DataLoader, swintrans_g:SwinTrans_G, detail:bool=False) -> float|list[float, list]:
+        pred = []
+        gth = []
+        for data in tqdm(val_loader):
+            imgs = swintrans_g.batch_inference(x=data)
+            for img in imgs:
+                img = self.preprocess(img)
+                prediction = self.ocr(img)
+                pred.append(prediction[0])  
+            gth += list(data['gth']) 
+            
+        acc = self(pred, gth, self.metrics, detail, to_acc=True)
+        return acc 
+
+    def update(self, acc:float)->str:
+        if acc >= self.current_best:
+            self.current_best = acc
+            return LPD_OCR_Evaluator.update_signal
+        return LPD_OCR_Evaluator.keep_signal
