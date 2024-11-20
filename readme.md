@@ -2,6 +2,12 @@
 
 [繁體中文](./docs/readme_cht.md)
 
+
+## TODO
+- [] Check new dataset, it seems having some problem
+- [] Try https://github.com/frotms/PaddleOCR2Pytorch.git to see if paddleOCR can be converted to torch and utilze the training script
+
+
 ## pipeline:
 <img src="./docs/anplr.png">
 
@@ -140,8 +146,6 @@ Example:
 **image of above demo command is from private data.** If you would like to run the demo, please request access at the following link: [Google Drive Link](https://drive.google.com/file/d/1W7kjO5eJXpqG11BtDkuL0MsdQdxB7SL2/view?usp=sharing).
 - Please provide your identity and reason for requesting access.
 
-## TODO
-[TODO](./docs/TODO.md)
 
 ## Acknowledgments
 
