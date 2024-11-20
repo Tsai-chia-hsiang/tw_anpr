@@ -389,19 +389,25 @@ class LPDGAN_Trainer(nn.Module):
             )
 
 
-class LPD_OCR_Evaluator(OCR_Evaluator):
+class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
     
     update_signal = "update"
     keep_signal = "keep"
     
-    def __init__(self, ocr_preprocess, metrics:Literal['lcs','cer']='cer', current_best=0) -> None:
+    def __init__(self, ocr_preprocess, current_best=0) -> None:
         super().__init__()
         self.ocr = LicensePlate_OCR()
-        self.metrics = metrics
         self.preprocess = ocr_preprocess
-        self.current_best = current_best
+        self.current_best = {
+            'cer':current_best,
+            'lcs':current_best
+        }
+        self.hist = {
+            'cer':[],
+            'lcs':[]
+        }
         
-    def val_LP_db_dataset(self, val_loader:DataLoader, swintrans_g:SwinTrans_G, detail:bool=False) -> float|list[float, list]:
+    def val_LP_db_dataset(self, val_loader:DataLoader, swintrans_g:SwinTrans_G) -> dict[str, float]:
         pred = []
         gth = []
         for data in tqdm(val_loader):
@@ -412,11 +418,19 @@ class LPD_OCR_Evaluator(OCR_Evaluator):
                 pred.append(prediction[0])  
             gth += list(data['gth']) 
             
-        acc = self(pred, gth, self.metrics, detail, to_acc=True)
-        return acc 
+        acc_cer = self(pred, gth, 'cer', to_acc=True)
+        acc_lcs = self(pred, gth, 'lcs')
+        return {'cer':acc_cer, 'lcs':acc_lcs}
 
-    def update(self, acc:float)->str:
-        if acc >= self.current_best:
-            self.current_best = acc
-            return LPD_OCR_Evaluator.update_signal
-        return LPD_OCR_Evaluator.keep_signal
+    def update(self, accs:dict[str, float])->dict[str, str]:
+        ret={'cer':None, 'lcs':None}
+        
+        for k, v in accs.items():
+            self.hist[k].append(v)
+            if v >= self.current_best[k]:
+                ret[k] =  LPD_OCR_ACC_Evaluator.update_signal
+                self.current_best[k] = v
+            else:
+                ret[k] = LPD_OCR_ACC_Evaluator.keep_signal
+        
+        return ret

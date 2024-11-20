@@ -14,10 +14,11 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import cv2
+import json
 from torch.utils.data import DataLoader
 from pathlib import Path
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset,\
-    SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_Evaluator
+    SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_ACC_Evaluator
 from LPDGAN.logger import get_logger
 from imgproc_utils import L_CLAHE
 
@@ -35,9 +36,9 @@ def reproducible(seed:int = 891122):
     torch.backends.cudnn.benchmark = False
 
 def evaluation_and_save(
-    lpdgan:LPDGAN_Trainer, val_loader:DataLoader, eva:LPD_OCR_Evaluator, 
-    save_dir:Path, logger:Logger,iters:int, epoch:Optional[int]=None,
-    board:Optional[SummaryWriter]=None, baseline:float=0
+    lpdgan:LPDGAN_Trainer, val_loader:DataLoader, eva:LPD_OCR_ACC_Evaluator, 
+    save_dir:Path, logger:Logger,iters:int, baseline:dict[str, float], 
+    epoch:Optional[int]=None, board:Optional[SummaryWriter]=None
 ) -> float:
     if val_loader is not None:
         # Having a validaiton dataset.
@@ -50,16 +51,17 @@ def evaluation_and_save(
         
         lpdgan.netG.eval()
         last_best = eva.current_best
-        acc = eva.val_LP_db_dataset(val_loader=val_loader, swintrans_g=lpdgan.netG, detail=False)
-        update_status = eva.update(acc=acc)
-        logger.info(f"acc : {acc} | baseline: {baseline} | last best: {last_best} | " + update_status)
-        if board is not None:
-            board.add_scalars(
-                f"ocr_acc", {"train":acc, "baseline":baseline},
-                iters
-            )
-        if update_status == LPD_OCR_Evaluator.update_signal:
-            lpdgan.save_networks(save_dir=save_dir)
+        acc = eva.val_LP_db_dataset(val_loader=val_loader, swintrans_g=lpdgan.netG)
+        update_status = eva.update(accs=acc)
+        for k in acc:
+            logger.info(f"{k}: baseline: {baseline[k]} | acc : {acc[k]} | last best: {last_best[k]} | {update_status[k]}")
+            if board is not None:
+                board.add_scalars(
+                    k, {"train":acc[k], "baseline":baseline[k]},
+                    iters
+                )
+            if update_status[k] == LPD_OCR_ACC_Evaluator.update_signal:
+                lpdgan.save_networks(save_dir=save_dir/f"{k}")
 
         return acc
     else:
@@ -87,25 +89,27 @@ def main(args:Namespace):
     dataset = LP_Deblur_Dataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
     logger.info(f'The number of training pairs = {len(dataset)}')
     trainloader = DataLoader(
-        dataset=dataset, batch_size=args.val_batch, 
+        dataset=dataset, batch_size=args.batch_size, 
         shuffle=True, num_workers=int(args.num_threads)
     )
     val_dataset = LP_Deblur_OCR_Valiation_Dataset.build_dataset(
         dataroot=args.val_data_root,
         label_file=args.label_file
     )
-    validator:LPD_OCR_Evaluator = None
+    validator:LPD_OCR_ACC_Evaluator = None
     val_loader:DataLoader = None
-    
+    baseline = {
+        'cer':args.ocr_cer_baseline,
+        'lcs':args.ocr_lcs_baseline
+    }
     if val_dataset is not None:
         logger.info(f"validation set : {args.val_data_root}, label:{args.label_file}, num: {len(val_dataset)}")
-        val_loader = DataLoader(dataset=val_dataset, batch_size=args.batch_size, shuffle=False)
-        validator = LPD_OCR_Evaluator(ocr_preprocess=L_CLAHE, metrics=args.eva_metrics, current_best=0.0)
-    
-    pretrained_ckpt=args.pretrained_dir/f"net_G.pth" if args.pretrained_dir is not None else None
-   
+        val_loader = DataLoader(dataset=val_dataset, batch_size=args.val_batch, shuffle=False)
+        validator = LPD_OCR_ACC_Evaluator(ocr_preprocess=L_CLAHE, current_best=0.0)
+
+
     Swin_Generator = SwinTrans_G(
-        pretrained_ckpt=pretrained_ckpt,
+        pretrained_ckpt=args.pretrained_ckpt,
         gpu_id=args.gpu_id, mode='train', 
         on_size=(224, 112)
     )
@@ -143,31 +147,38 @@ def main(args:Namespace):
                 print_flag = total_iters//args.print_freq
 
             if  total_iters // args.save_freq > save_flag:
-                prefix =  "ocr_best" if val_loader is not None else f'iter_{total_iters}'
-
                 evaluation_and_save(
-                    lpdgan=lpdgan, val_loader=val_loader,
-                    eva=validator, save_dir=args.model_save_root/prefix,
+                    lpdgan=lpdgan, val_loader=val_loader, eva=validator, 
+                    save_dir = args.model_save_root if val_loader is not None \
+                        else args.model_save_root /f'iter_{total_iters}',
                     iters=total_iters, board=tensorboard_writer,logger=logger,
-                    baseline=args.ocr_baseline
+                    baseline=baseline
                 )
                 
                 Swin_Generator.train()
                 save_flag = total_iters // args.save_freq
 
         if epoch % args.save_epoch_freq == 0:
-            prefix =  "ocr_best" if val_loader is not None else f'epoch_{epoch}'
+
             evaluation_and_save(
                 lpdgan=lpdgan, val_loader=val_loader,
-                eva=validator, save_dir=args.model_save_root/prefix,
+                eva=validator, 
+                save_dir = args.model_save_root if val_loader is not None \
+                    else args.model_save_root /f'epoch_{epoch}',
                 iters=total_iters, board=tensorboard_writer,logger=logger,
-                baseline=args.ocr_baseline, epoch=epoch
+                baseline=baseline, epoch=epoch
             )
-            Swin_Generator.train()
 
+            Swin_Generator.train()
+        
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
+        lpdgan.save_networks(save_dir = args.model_save_root/'latest')
         lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
         logger.info(f"Last step optimizers and schedulers are saved at { args.model_save_root/'latest'}")
+    
+    if validator is not None:
+        with open(args.model_save_root/f"val_metrics.json", "w+") as jf:
+            json.dump(validator.hist, jf, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
     
@@ -179,8 +190,9 @@ if __name__ == "__main__":
     parser.add_argument("--val_data_root", type=Path, default=None)
     parser.add_argument("--label_file", type=Path, default=None)
     parser.add_argument("--val_batch", type=int, default=40)
-    parser.add_argument("--eva_metrics", type=str, default='lcs')
-    parser.add_argument("--ocr_baseline", type=float, default=0.51)
+    
+    parser.add_argument("--ocr_lcs_baseline", type=float, default=0.51)
+    parser.add_argument("--ocr_cer_baseline", type=float, default=0.49)
 
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
     parser.add_argument("--gpu_id", type=int, default=0)
@@ -199,9 +211,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     
     # load pretrained model
-    parser.add_argument('--pretrained_dir', type=Path, default=None)
-    parser.add_argument('--load_iter', type=int, default=200)
-
+    parser.add_argument('--pretrained_ckpt', type=Path, default=None)
     # lr
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate for adam')

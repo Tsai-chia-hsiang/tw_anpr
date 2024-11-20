@@ -97,7 +97,10 @@ class OCR_Evaluator():
 
         match metrics:
             case 'cer':
-                return OCR_Evaluator.cer(pred_gth=pred_gth, each_dist=detail, to_acc=getattr(kwargs, 'to_acc', False))
+                to_acc = False
+                if 'to_acc' in kwargs:
+                    to_acc = kwargs['to_acc']
+                return OCR_Evaluator.cer(pred_gth=pred_gth, each_dist=detail, to_acc=to_acc)
             case 'lcs':
                 return  OCR_Evaluator.lcs_rate(pred_gth=pred_gth, lcs_list=detail)
             

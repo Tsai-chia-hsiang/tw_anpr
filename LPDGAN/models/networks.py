@@ -65,15 +65,13 @@ class PerceptualLoss(nn.Module):
     def __init__(self):
         super(PerceptualLoss, self).__init__()
         with torch.no_grad():
-          self.vgg_relu_3_3 = self.contentFunc(15)
-          self.vgg_relu_2_2 = self.contentFunc(8)
-          self.transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            self.vgg_relu_3_3 = self.contentFunc(15)
+            self.vgg_relu_2_2 = self.contentFunc(8)
+            self.transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
     def contentFunc(self, relu_layer):
         cnn = models.vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
-        cnn = cnn.cuda()
         model = nn.Sequential()
-        model = model.cuda()
         model = model.eval()
         for i, layer in enumerate(list(cnn)):
             model.add_module(str(i), layer)
