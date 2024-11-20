@@ -32,6 +32,7 @@ def get_easy_ocr_rcnn():
 flatten2D = lambda  nested_list: [item for sublist in nested_list for item in sublist]
 
 class LP_Deblur_Inference_Dataset(Dataset):
+    
     def __init__(self, imgs:list[Path], org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180):
         super().__init__()
         self.sp = Spatial_Pyramid_cv2(org_size=org_size, origin_brightness=on_brightness)
@@ -74,6 +75,9 @@ class LP_Deblur_OCR_Valiation_Dataset(LP_Deblur_Inference_Dataset):
         with open(label_file, "r") as f:
             l= json.load(f)
         imgs = [dataroot/i for i in l.keys()]
+        for i in imgs:
+            assert i.is_file()
+        
         labels = list(l.values())
         return cls(imgs=imgs, labels=labels, org_size=org_size, on_brightness=on_brightness)
 
@@ -90,26 +94,19 @@ class LP_Deblur_Dataset(Dataset):
         self.blur_aug = blur_aug
         self.sharp_root = Path(data_root)/"sharp"
         self.txt_info = {}
-        max_len = 0
-        min_len = 500
         for imgid in tqdm([_.name for _ in (self.sharp_root).glob("*.jpg")]):
             txt_tensor = self.get_text_info(img=self.sharp_root/imgid) 
             if len(txt_tensor):
-                if len(txt_tensor) > max_len:
-                    max_len = len(txt_tensor)
-                if len(txt_tensor) < min_len:
-                    min_len = len(txt_tensor)
                 self.txt_info[imgid] = txt_tensor
       
-        self.sharp_blur_pairs = [
+        self.sharp_blur_pairs: list[tuple[Path, Path]] = flatten2D([
             [
-                (self.sharp_root/imgid, Path(data_root)/f"{b}"/imgid) 
+                (self.sharp_root/f"{imgid}", Path(data_root)/f"{b}"/f"{imgid}") 
                 for imgid in self.txt_info.keys()
             ] 
             for b in self.blur_aug
-        ]
+        ])
         
-        self.sharp_blur_pairs = flatten2D(self.sharp_blur_pairs)
         for t in self.sharp_blur_pairs:
             assert t[1].is_file(), print(t[1])
             if t[0] is not None:
@@ -136,6 +133,7 @@ class LP_Deblur_Dataset(Dataset):
         r['B_paths']= str(ps[1])
         
         return r
+    
     def get_text_info(self, img:Path) -> torch.Tensor:
              
         def count_area(d)->int:    
