@@ -1,13 +1,14 @@
 from anpr import LicensePlate_OCR, OCR_Evaluator
 import Levenshtein as lev
 from typing import Optional
-from LPDGAN.LPDGAN import SwinTrans_G, LPDGAN_DEFALUT_CKPT_DIR
+from LPDGAN.LPDGAN import SwinTrans_G
 from imgproc_utils import L_CLAHE, normalize_brightness
 from pathlib import Path
 import numpy as np
 import cv2
+from LPDGAN.models.utils import load_networks
+import torch
 import json
-import os.path as osp
 from tqdm import tqdm
 import argparse
 from argparse import Namespace
@@ -56,19 +57,21 @@ def main(args:Namespace):
     ocr_eva = OCR_Evaluator()
     
     deblur_swintransformer = None
-    
-    if args.deblur is not None:
-        ckpt_path = args.deblur_ckpt_dir/args.deblur
-        if ckpt_path.is_file():
-            title=osp.sep.join(ckpt_path.parts[-2:])
-        deblur_swintransformer = SwinTrans_G(
-            pretrained_ckpt=args.deblur_ckpt_dir/args.deblur, 
-            mode='inference', gpu_id=int(args.gpu),
-            show_log=False
-        )
-    
+    if args.deblur_weight_dir is not None:
+        if args.deblur_weight_dir == "no":
+            print(f"default OCR validating")
+        else:    
+            pretrained_weight = Path(args.deblur_weight_dir)/"net_G.pth"
+            if pretrained_weight.is_file():
+                title = str(args.deblur_weight_dir)
+                deblur_swintransformer = SwinTrans_G( mode='inference', on_size=(224, 112))
+                load_networks(deblur_swintransformer, pretrained_weight)
+                deblur_swintransformer.to(device=torch.device(f"cuda:{args.gpu}" if args.gpu >= 0 else "cpu"))
+                print(f"using pretrained swintransformer to deblur")
+            else:
+                print(f"no {pretrained_weight} such a file , default OCR validating")
+            
     pred = [None] * len(imgs)
-    
     for i, img_path in enumerate(tqdm(imgs)):
         src_img = cv2.imread(img_path)
         if deblur_swintransformer is not None:
@@ -105,8 +108,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=Path)
     parser.add_argument("--label_file", type=Path)
     parser.add_argument("--eva", type=str, default='lcs')
-    parser.add_argument("--deblur_ckpt_dir", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
-    parser.add_argument("--deblur", type=Path, default=None)
+    parser.add_argument("--deblur_weight_dir", type=str, default=None)
     parser.add_argument("--gpu", type=int, default=0)
     args = parser.parse_args()
     main(args = args)

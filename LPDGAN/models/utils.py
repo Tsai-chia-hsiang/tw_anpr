@@ -2,30 +2,25 @@ from pathlib import Path
 import torch
 from logging import Logger
 from typing import Optional
+"""import sys
+import os
+sys.path.append(str(Path(os.path.abspath(__file__)).parent/"logger"))"""
+from ..logger import print_infomation
 
 def load_networks(net:torch.nn.Module, pretrained_ckpt:Path, logger:Optional[Logger]=None, show_log=True) -> None:
     
     if show_log:
         if pretrained_ckpt is None:
-            if logger is not None:
-                logger.info(f"pretrained_ckpt is None, will not load")
-            else:
-                print(f"pretrained_ckpt is None, will not load")
+            print_infomation(f"pretrained_ckpt is None, will not load", logger=logger)
             return 
         
     if not pretrained_ckpt.is_file():
         if show_log:
-            if logger is not None:
-                logger.info(f"No such {pretrained_ckpt} file, will not load")
-            else:
-                print(f"No such {pretrained_ckpt} file, will not load")
+            print_infomation(f"No such {pretrained_ckpt} file, will not load", logger=logger)
             return 
     
     if show_log:
-        if logger is not None:
-            logger.info(f"loading the model from {pretrained_ckpt}")
-        else:
-            print(f"loading the model from {pretrained_ckpt}")
+       print_infomation(f"load weight from {pretrained_ckpt}", logger=logger)
     
     state_dict = torch.load(pretrained_ckpt, map_location='cpu', weights_only=True)
     

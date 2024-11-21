@@ -15,7 +15,8 @@ from .models.networks import NLayerDiscriminator, \
     get_scheduler
 from .data import tensor2img, Spatial_Pyramid_cv2
 from .models.taming.modules.losses.lpips import OCR_CRAFT_LPIPS
-
+from .logger import print_infomation
+import gc
 _LPDGAN_DIR_ = Path(os.path.abspath(__file__)).parent
 LPDGAN_DEFALUT_CKPT_DIR = _LPDGAN_DIR_/"checkpoints"
 import sys
@@ -26,25 +27,26 @@ check_gpu_id = lambda gpu_id: gpu_id > -1 and torch.cuda.is_available() and gpu_
 
 class SwinTrans_G(nn.Module):
     
-    def __init__(self, pretrained_ckpt:Optional[Path]=None, gpu_id:int=0, mode:Literal["train", "inference"]="train", on_size:tuple[int, int]=(224, 112), show_log:bool=True):
+    def __init__(self, mode:Literal["train", "inference"]="train", on_size:tuple[int, int]=(224, 112)):
         
         super(SwinTrans_G, self).__init__()
         self.mode = mode
-        self.device = torch.device(f'cuda:{gpu_id}') if check_gpu_id(gpu_id=gpu_id) else torch.device('cpu')
         config_su = get_config_or()
         self.netG = SwinTransformer_Backbone(config_su)
         self.model_name = 'G'
-        load_networks(pretrained_ckpt=pretrained_ckpt, net=self.netG, show_log=show_log)
-        self.netG.to(device=self.device)
         self.on_size = on_size
         self.inference_aug = Spatial_Pyramid_cv2(org_size=self.on_size) 
-        
+        self.device:torch.device = torch.device('cpu')
         match self.mode:
             case "train":
                 self.train()
             case "inference":
                 self.eval()
-
+    
+    def to(self, device:torch.device):
+        self.device = device
+        return super().to(device=device)
+        
     def forward(self, x:dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor]:
 
         fake_B, fake_B1, fake_B2, fake_B3, plate1, plate2 = self.netG(
@@ -69,17 +71,20 @@ class SwinTrans_G(nn.Module):
 class LPDGAN_Trainer(nn.Module):
     
     def __init__(
-            self, logger:Logger, netG:SwinTrans_G, pretrained_dir:Path ,epochs_policy:dict[str, str], 
+            self, epochs_policy:dict[str, str], 
             gan_mode:Literal['wgangp', 'vanilla']='wgangp',
+            pretrained_weights:Optional[Path] = None ,
+            checkpoint_dir:Optional[Path]=None,
             lr:float=0.002,  lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
             input_channel:int=3, output_channel:int=3, ndf:int = 64,
             lambda_L1:float=100.0,
-            perceptual_loss:Literal['perceptual', 'OCR_perceptual'] = "OCR_perceptual",
-            
+            ocr_percepual:bool=True,
+            logger:Optional[Logger]=None, gpu_id:int=0,
+            on_size:tuple[int,int]=(224, 112)
         ) -> None:
         super().__init__()
-        self.netG = netG
-        self.device = netG.device
+        self.device = torch.device(f'cuda:{gpu_id}') if check_gpu_id(gpu_id=gpu_id) else torch.device('cpu')
+
         self.gan_mode = gan_mode
         self.input_channel = input_channel
         self.output_channel = output_channel
@@ -88,24 +93,15 @@ class LPDGAN_Trainer(nn.Module):
         self.lr_policy = lr_policy
         self.lambda_L1 = lambda_L1
 
-        self.perceptualLoss = PerceptualLoss().to(self.device)
-        
-        self.OCR_perceptualLoss = None
-        match perceptual_loss:
-            case 'perceptual':
-                self.OCR_perceptualLoss = PerceptualLoss().to(self.device).eval()
-            case 'OCR_perceptual':
-                self.OCR_perceptualLoss = OCR_CRAFT_LPIPS().to(self.device).eval()
-            case _ :
-                raise KeyError(f"Not support {perceptual_loss} yet")
-        
+        self.netG = SwinTrans_G(mode='train', on_size=on_size)
+
         self.netD = NLayerDiscriminator(
             self.input_channel + self.output_channel, 
             self.ndf, n_layers=3, 
             norm_layer=functools.partial(
                 nn.BatchNorm2d, affine=True, track_running_stats=True
             )
-        ).to(self.device)
+        )
         
         self.netD1 = NLayerDiscriminator(
             self.input_channel + self.output_channel, 
@@ -113,7 +109,7 @@ class LPDGAN_Trainer(nn.Module):
             norm_layer=functools.partial(
                 nn.BatchNorm2d, affine=True, track_running_stats=True
             )
-        ).to(self.device)
+        )
         
         self.netD2 = NLayerDiscriminator(
             self.input_channel + self.output_channel, 
@@ -121,65 +117,46 @@ class LPDGAN_Trainer(nn.Module):
             norm_layer=functools.partial(
                 nn.BatchNorm2d, affine=True, track_running_stats=True
             )
-        ).to(self.device)
+        )
 
         self.netD_smallblock = PixelDiscriminator(
             self.input_channel, self.ndf, 
             norm_layer=functools.partial(
                 nn.BatchNorm2d, affine=True, track_running_stats=True
             )
-        ).to(self.device)
+        )
         
-        self.model_names = ['G', 'D', 'D_smallblock', 'D1', 'D2']
-        if pretrained_dir is not None:
-            if pretrained_dir.is_dir():
-                self.load_nets(pretrained_dir=pretrained_dir)
-            else:
-                logger.info(f"using random init..")
-        else:
-            logger.info(f"using random init..")
+        self.model_names = ['G','D', 'D_smallblock', 'D1', 'D2']
+        self.load_nets(target=self.model_names, pretrained_dir = pretrained_weights, logger=logger)
+        self._net_to_device(target=self.model_names)
 
         self.loss_names = ['G_GAN', 'G_L1', 'PlateNum_L1', 'D_GAN', 'P_loss', 'D_real', 'D_fake', 'D_s']
         self.criterionL1 = torch.nn.L1Loss()
         self.criterionGAN = GANLoss(gan_mode).to(self.device)
         self.criterionGAN_s = GANLoss('lsgan').to(self.device)
-
-        self.optimizer_G = torch.optim.Adam(
-            self.netG.parameters(), lr=lr, betas=(0.5, 0.999)
-        )
+        self.perceptualLoss = PerceptualLoss().to(self.device)
+        self.OCR_perceptualLoss = OCR_CRAFT_LPIPS().to(self.device).eval() if ocr_percepual else None
         
-        self.optimizer_D = torch.optim.Adam(
-            self.netD.parameters(), lr=lr, betas=(0.5, 0.999)
-        )
 
-        self.optimizer_D_smallblock = torch.optim.Adam(
-            self.netD_smallblock.parameters(), lr=lr, betas=(0.5, 0.999)
-        )
-        self.optimizers = [self.optimizer_G, self.optimizer_D, self.optimizer_D_smallblock]
-    
+        self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=lr, betas=(0.5, 0.999))        
+        self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=lr, betas=(0.5, 0.999))
+        self.optimizer_D_smallblock = torch.optim.Adam(self.netD_smallblock.parameters(), lr=lr, betas=(0.5, 0.999))
+
+        self.optimizers = [self.optimizer_G, self.optimizer_D, self.optimizer_D_smallblock]    
         self.schedulers = [get_scheduler(optimizer, lr_policy=self.lr_policy, **epochs_policy) for optimizer in self.optimizers]
+        self.load_opts_and_schedulers(checkpoint=checkpoint_dir, logger=logger)
+        gc.collect()
+        
+    def _net_to_device(self, target:list[str]):
+        for net_name in target:
+            
+            net:nn.Module = getattr(self, 'net' + net_name, None)
+            if net is None:
+                print(f"No {net_name} such a net, please check")
+                continue
 
-    def set_input(self, input:dict[str, torch.Tensor|tuple[str]]):
+            net.to(device=self.device)
     
-        self.real_A = input['A0'].to(self.device)
-        self.real_A1 = input['A1'].to(self.device)
-        self.real_A2 = input['A2'].to(self.device)
-        self.image_paths = input['A_paths']
-        self.real_B = input['B0'].to(self.device)
-        self.real_B1 = input['B1'].to(self.device)
-        self.real_B2 = input['B2'].to(self.device)
-        self.real_B3 = input['B3'].to(self.device)
-        self.plate_info = input['plate_info'].to(self.device)
-
-    def forward(self):
-        self.fake_B, self.fake_B1, self.fake_B2, self.fake_B3, \
-            self.plate1, self.plate2 = self.netG(
-                {'A0':self.real_A, 'A1':self.real_A1, 'A2':self.real_A2}
-            )
-        self.fake_B_split = torch.chunk(self.fake_B, 7, dim=3)
-        self.real_B_split = torch.chunk(self.real_B, 7, dim=3)
-        self.real_A_split = torch.chunk(self.real_A, 7, dim=3)
-
     def set_requires_grad(self, nets:list[nn.Module]|nn.Module, requires_grad=False):
         if not isinstance(nets, list):
             nets = [nets]
@@ -188,6 +165,27 @@ class LPDGAN_Trainer(nn.Module):
                 for param in net.parameters():
                     param.requires_grad = requires_grad
 
+    def forward(self, input_x:dict[str, torch.Tensor|tuple[str]]):
+        
+        self.real_A = input_x['A0'].to(self.device)
+        self.real_A1 = input_x['A1'].to(self.device)
+        self.real_A2 = input_x['A2'].to(self.device)
+        self.image_paths = input_x['A_paths']
+        self.real_B = input_x['B0'].to(self.device)
+        self.real_B1 = input_x['B1'].to(self.device)
+        self.real_B2 = input_x['B2'].to(self.device)
+        self.real_B3 = input_x['B3'].to(self.device)
+        self.plate_info = input_x['plate_info'].to(self.device)
+
+        self.fake_B, self.fake_B1, self.fake_B2, self.fake_B3, \
+            self.plate1, self.plate2 = self.netG(
+                {'A0':self.real_A, 'A1':self.real_A1, 'A2':self.real_A2}
+            )
+        self.fake_B_split = torch.chunk(self.fake_B, 7, dim=3)
+        self.real_B_split = torch.chunk(self.real_B, 7, dim=3)
+        self.real_A_split = torch.chunk(self.real_A, 7, dim=3)
+
+    #Loss 
     def cal_small_D(self) -> torch.Tensor:
         loss_D_s_fake = 0
         loss_D_s_real = 0
@@ -301,8 +299,9 @@ class LPDGAN_Trainer(nn.Module):
         self.loss_G = self.loss_G_GAN + self.loss_G_s + self.loss_G_L1 + self.loss_P_loss + 0.1 * self.loss_PlateNum_L1
         self.loss_G.backward()
 
-    def optimize_parameters(self):
-        self.forward()
+    #enter point : optimize the paras
+    def optimize_parameters(self, input_x:dict[str, torch.Tensor|tuple[str]]):
+        self.forward(input_x=input_x)
         self.set_requires_grad(self.netD, True)
         self.optimizer_D.zero_grad()
         self.backward_D()
@@ -340,11 +339,16 @@ class LPDGAN_Trainer(nn.Module):
                 scheduler.step()
 
         lr = self.optimizers[0].param_groups[0]['lr']
-        if logger is None:
-            print(f'learning rate {old_lr:.7f} -> {lr:.7f}')
-        else:
-            logger.info(f'learning rate {old_lr:.7f} -> {lr:.7f}')
+        print_infomation(f'learning rate {old_lr:.7f} -> {lr:.7f}', logger=logger)
         
+    def get_current_losses(self) -> dict[str, float]:
+        errors_ret = {}
+        for name in self.loss_names:
+            if isinstance(name, str):
+                errors_ret[name] = float(getattr(self, 'loss_' + name))
+        return errors_ret
+    
+    ## net load & save
     def save_networks(self, save_dir:Path):
         save_dir.mkdir(parents=True, exist_ok=True)
         for name in self.model_names:
@@ -356,24 +360,27 @@ class LPDGAN_Trainer(nn.Module):
                 else:
                     torch.save(net.state_dict(), save_path)  # Directly save if not wrapped in DataParallel
 
-    def load_nets(self, pretrained_dir:Path, logger:Optional[Logger] = None):
-        if logger is not None:
-            logger.info(f"load from {pretrained_dir}")
-            
-        for name in self.model_names:
-            if isinstance(name, str) and name != 'G':
-                load_networks(
-                    net=getattr(self, 'net' + name), 
-                    pretrained_ckpt=pretrained_dir/f'net_{name}.pth'
-                )
+    def load_nets(self, target:list[str], pretrained_dir:Optional[Path]=None, logger:Optional[Logger] = None):
+        
+        if pretrained_dir is None:
+            print_infomation("Will use random init ..", logger=logger)
+            return
+        
+        if not pretrained_dir.is_dir():
+            print_infomation(f"No {pretrained_dir} such a directory, will use random init ..", logger=logger)
+            return 
+        
+        print_infomation(f"load from {pretrained_dir}", logger=logger)    
+        
+        for name in target:
+            net = getattr(self, 'net' + name, None)
+            if net is None:
+                print_infomation(f"No {name} such a net to load, please check", logger=logger)
+                continue
+        
+            load_networks(net=net, pretrained_ckpt=pretrained_dir/f'net_{name}.pth', logger=logger)
     
-    def get_current_losses(self) -> dict[str, float]:
-        errors_ret = {}
-        for name in self.loss_names:
-            if isinstance(name, str):
-                errors_ret[name] = float(getattr(self, 'loss_' + name))
-        return errors_ret
-    
+    ## optimizers & schedulers load & save
     def save_optimizers(self, save_dir:Path):
         """
         save optimizers and schedulers
@@ -388,6 +395,24 @@ class LPDGAN_Trainer(nn.Module):
                 sched.state_dict(),
                 save_dir/f"{opt_name}_sche.pth"
             )
+        
+    def load_opts_and_schedulers(self, checkpoint:Optional[Path]=None, logger:Optional[Logger]=None):
+        
+        if checkpoint is None:
+            print_infomation("using init status", logger=logger)
+            return 
+        
+        if not checkpoint.is_dir():
+            print_infomation(f"No such {checkpoint}, using init status")
+            return 
+        
+        for opt_name, opt, sched in zip(["G", "D", "D_small"], self.optimizers, self.schedulers): 
+            print_infomation(
+                f"{opt_name}: {checkpoint/f'{opt_name}_opt.pth'} & {checkpoint/f'{opt_name}_sche.pth'}", 
+                logger=logger
+            )
+            load_networks(opt, checkpoint/f"{opt_name}_opt.pth", logger=logger)
+            load_networks(sched, checkpoint/f"{opt_name}_sche.pth", logger=logger)
 
 
 class LPD_OCR_ACC_Evaluator(OCR_Evaluator):

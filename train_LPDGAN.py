@@ -17,8 +17,7 @@ import cv2
 import json
 from torch.utils.data import DataLoader
 from pathlib import Path
-from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset,\
-    SwinTrans_G, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_ACC_Evaluator
+from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_ACC_Evaluator
 from LPDGAN.logger import get_logger
 from imgproc_utils import L_CLAHE
 
@@ -38,7 +37,8 @@ def reproducible(seed:int = 891122):
 def evaluation_and_save(
     lpdgan:LPDGAN_Trainer, val_loader:DataLoader, eva:LPD_OCR_ACC_Evaluator, 
     save_dir:Path, logger:Logger,iters:int, baseline:dict[str, float], 
-    epoch:Optional[int]=None, board:Optional[SummaryWriter]=None
+    epoch:Optional[int]=None, board:Optional[SummaryWriter]=None,
+    keep_training:bool=True
 ) -> float:
     if val_loader is not None:
         # Having a validaiton dataset.
@@ -62,7 +62,9 @@ def evaluation_and_save(
                 )
             if update_status[k] == LPD_OCR_ACC_Evaluator.update_signal:
                 lpdgan.save_networks(save_dir=save_dir/f"{k}")
-
+        if keep_training:
+            lpdgan.netG.train()
+        
         return acc
     else:
         # no validation, directly save
@@ -107,23 +109,18 @@ def main(args:Namespace):
         val_loader = DataLoader(dataset=val_dataset, batch_size=args.val_batch, shuffle=False)
         validator = LPD_OCR_ACC_Evaluator(ocr_preprocess=L_CLAHE, current_best=0.0)
 
-
-    Swin_Generator = SwinTrans_G(
-        pretrained_ckpt = args.pretrained_dir if args.pretrained_dir is None else args.pretrained_dir/"net_G.pth" ,
-        gpu_id=args.gpu_id, mode='train', 
-        on_size=(224, 112)
-    )
-
     lpdgan = LPDGAN_Trainer(
-        netG=Swin_Generator, logger=logger, 
-        pretrained_dir= args.pretrained_dir  ,  
-        gan_mode=args.gan_mode, epochs_policy= {
+        logger=logger, epochs_policy= {
             'n_epochs':args.n_epochs,
             'n_epochs_decay':args.n_epochs_decay,
             'lr_decay_iters':args.lr_decay_iters
         },
+        pretrained_weights=args.pretrained_weights,
+        checkpoint_dir=args.checkpoint_dir, 
+        gan_mode=args.gan_mode,
         lr=args.lr, lr_policy=args.lr_policy, lambda_L1=args.lambda_L1, 
-        perceptual_loss=args.perceptual
+        ocr_percepual=args.ocr_perceptual,
+        gpu_id=args.gpu_id
     )
     
     total_iters = 0
@@ -133,21 +130,19 @@ def main(args:Namespace):
         epoch_start_time = time.time()
         lpdgan.update_learning_rate(logger=logger)
         bar = tqdm(trainloader)
+
         for data in bar:
-            
             n_samples = len(data['A_paths'])
             total_iters += n_samples
-            lpdgan.set_input(data)
-            lpdgan.optimize_parameters()
-
+            lpdgan.optimize_parameters(input_x=data)
             bar.set_postfix(ordered_dict={"iters":total_iters})
             if total_iters // args.print_freq > print_flag:
                 iter_loss = lpdgan.get_current_losses()
                 tensorboard_writer.add_scalars("Losses",iter_loss, total_iters)
                 logger.info(f"iters:{total_iters}:{iter_loss}")
                 print_flag = total_iters//args.print_freq
-
-            if  total_iters // args.save_freq > save_flag:
+            
+            if args.save_iter and (total_iters // args.save_freq > save_flag):
                 evaluation_and_save(
                     lpdgan=lpdgan, val_loader=val_loader, eva=validator, 
                     save_dir = args.model_save_root if val_loader is not None \
@@ -155,12 +150,9 @@ def main(args:Namespace):
                     iters=total_iters, board=tensorboard_writer,logger=logger,
                     baseline=baseline
                 )
-                
-                Swin_Generator.train()
                 save_flag = total_iters // args.save_freq
 
         if epoch % args.save_epoch_freq == 0:
-
             evaluation_and_save(
                 lpdgan=lpdgan, val_loader=val_loader,
                 eva=validator, 
@@ -169,8 +161,6 @@ def main(args:Namespace):
                 iters=total_iters, board=tensorboard_writer,logger=logger,
                 baseline=baseline, epoch=epoch
             )
-
-            Swin_Generator.train()
         
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
         lpdgan.save_networks(save_dir = args.model_save_root/'latest')
@@ -198,21 +188,23 @@ if __name__ == "__main__":
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--seed", type=int, default=891122)
+
     # Batch size & epochs & lr scheduler
     parser.add_argument("--batch_size", type=int, default=40)
     parser.add_argument("--n_epochs", type=int, default=100, help='number of epochs with the initial learning rate')
     parser.add_argument("--n_epochs_decay", type=int, default=200, help='number of epochs to linearly decay learning rate to zero')
     parser.add_argument("--lr_decay_iters", type=int, default=50, help='multiply by a gamma every lr_decay_iters iterations')
-    parser.add_argument('--lr_policy', type=str, default='linear',
-                        help='learning rate policy. [linear | step | plateau | cosine]')
+    parser.add_argument('--lr_policy', type=str, default='linear',help='learning rate policy. [linear | step | plateau | cosine]')
 
     # save mode 
     parser.add_argument('--save_epoch_freq', type=int, default=5)
-    parser.add_argument('--save_freq', type=int, default=5000)
+    parser.add_argument('--save_iter', action='store_true')
+    parser.add_argument('--save_iter_freq', type=int, default=5000)
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
     
     # load pretrained model
-    parser.add_argument('--pretrained_dir', type=Path, default=None)
+    parser.add_argument('--pretrained_weights', type=Path, default=None)
+    parser.add_argument('--checkpoint_dir', type=Path, default=None, help='Using the optimizers and schedulers saved from previous work to keep training')
     # lr
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate for adam')
@@ -221,7 +213,7 @@ if __name__ == "__main__":
     parser.add_argument('--gan_mode', type=str, default='wgangp')
     
     # Loss function
-    parser.add_argument("--perceptual", type=str, default="OCR_perceptual")
+    parser.add_argument("--ocr_perceptual", action='store_false')
     parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
     parser.add_argument('--print_freq', type=int, default=10400)
 
