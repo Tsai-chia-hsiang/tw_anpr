@@ -48,16 +48,17 @@ class SwinTrans_G(nn.Module):
         return super().to(device=device)
         
     def forward(self, x:dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor]:
-
-        fake_B, fake_B1, fake_B2, fake_B3, plate1, plate2 = self.netG(
+        #fake_B1, fake_B2, fake_B3, plate1, plate2
+        fake_B  = self.netG(
             x['A0'].to(self.device), x['A1'].to(self.device), x['A2'].to(self.device)
         )
-        return fake_B, fake_B1, fake_B2, fake_B3, plate1, plate2
+        #, fake_B1, fake_B2, fake_B3, plate1, plate2
+        return fake_B
     
     @torch.no_grad()
     def inference(self, x:np.ndarray, to_cv2:bool=True) -> np.ndarray:
-
-        fake_B, _ ,_ ,_ ,_, _ = self(self.inference_aug(img=x, map_key='A', L=3, to_batch=True))
+        #fake_B, _ ,_ ,_ ,_, _
+        fake_B = self(self.inference_aug(img=x, map_key='A', L=3, to_batch=True))
         
         return tensor2img(input_image=fake_B[0], to_cv2=to_cv2)
     

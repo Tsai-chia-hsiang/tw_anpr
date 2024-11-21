@@ -973,7 +973,6 @@ class SwinTransformerSys(nn.Module):
         self.num_features_up = int(embed_dim * 2)
         self.mlp_ratio = mlp_ratio
         self.final_upsample = final_upsample
-
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
@@ -993,6 +992,7 @@ class SwinTransformerSys(nn.Module):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
         # build encoder and bottleneck layers
+        """
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
@@ -1027,7 +1027,7 @@ class SwinTransformerSys(nn.Module):
 
         self.CNN_block1 = CNN_Linear(96, 784)
         self.CNN_block2 = CNN_Linear(192, 196)
-
+        """
         self.IE0 = Input_Extracter(img_size=(112, 224), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=48,
                                    depths=[2, 2, 2, 2], num_heads=[3, 6, 12, 24], window_size=7,
                                    mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
@@ -1142,6 +1142,8 @@ class SwinTransformerSys(nn.Module):
     # Decoder and Skip connection
     def forward_up_features(self, x):
         for inx, layer_up in enumerate(self.layers_up):
+            x = layer_up(x)
+            """
             if inx == 0:
                 self.y3 = self.MBO3(x)
                 x = layer_up(x)
@@ -1154,7 +1156,7 @@ class SwinTransformerSys(nn.Module):
                     self.plate_num1 = self.CNN_block1(x)
                     self.y1 = self.MBO1(x)
                 x = layer_up(x)
-
+            """
         x = self.norm_up(x)  # B L C
         return x
 
@@ -1176,7 +1178,7 @@ class SwinTransformerSys(nn.Module):
         x = self.forward_up_features(x)
         x = self.up_x4(x)
 
-        return x, self.y1, self.y2, self.y3, self.plate_num1, self.plate_num2
+        return x, #self.y1, self.y2, self.y3, self.plate_num1, self.plate_num2
 
     def flops(self):
         flops = 0
