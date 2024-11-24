@@ -148,7 +148,7 @@ def main(args:Namespace):
                 logger.info(f"iters:{total_iters}:{iter_loss}")
                 print_flag = total_iters//args.print_freq
             
-            if args.save_iter and (total_iters // args.save_freq > save_flag):
+            if args.save_iter and (total_iters // args.save_iter_freq > save_flag):
                 evaluation_and_save(
                     lpdgan=lpdgan, val_loader=val_loader, eva=validator, 
                     save_dir = args.model_save_root if val_loader is not None \
@@ -156,7 +156,7 @@ def main(args:Namespace):
                     iters=total_iters, board=tensorboard_writer,logger=logger,
                     baseline=baseline
                 )
-                save_flag = total_iters // args.save_freq
+                save_flag = total_iters // args.save_iter_freq
 
         if epoch % args.save_epoch_freq == 0:
             evaluation_and_save(
