@@ -4,7 +4,6 @@
 
 
 ## TODO
-- [ ] Modify the SwinG to let it has the ability for having different output shape for text reconstruction module
 - [ ] Check new dataset, it seems having some problem
 - [ ] Try https://github.com/frotms/PaddleOCR2Pytorch.git to see if paddleOCR can be converted to torch and utilze the training script
 
