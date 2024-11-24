@@ -9,9 +9,9 @@ import torch.nn as nn
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from .models import SwinTransformer_Backbone, get_config_or, load_networks
+from .models import SwinTransformer_Backbone, MBOSys, get_config_or, load_networks
 from .models.networks import NLayerDiscriminator, \
-    PixelDiscriminator, PerceptualLoss, GANLoss, \
+    PixelDiscriminator, PerceptualLoss, GANLoss, TXT_REC_LOSSES, \
     get_scheduler
 from .data import tensor2img, Spatial_Pyramid_cv2
 from .models.taming.modules.losses.lpips import OCR_CRAFT_LPIPS
@@ -27,44 +27,39 @@ check_gpu_id = lambda gpu_id: gpu_id > -1 and torch.cuda.is_available() and gpu_
 
 class SwinTrans_G(nn.Module):
     
-    def __init__(self, mode:Literal["train", "inference"]="train", on_size:tuple[int, int]=(224, 112)):
+    def __init__(self, on_size:tuple[int, int]=(224, 112)):
         
         super(SwinTrans_G, self).__init__()
-        self.mode = mode
+
         config_su = get_config_or()
-        self.netG = SwinTransformer_Backbone(config_su)
-        self.model_name = 'G'
         self.on_size = on_size
-        self.inference_aug = Spatial_Pyramid_cv2(org_size=self.on_size) 
+        self.netG = SwinTransformer_Backbone(config_su, img_size=on_size[0])
+        self.inference_aug:Spatial_Pyramid_cv2 = None 
         self.device:torch.device = torch.device('cpu')
-        match self.mode:
-            case "train":
-                self.train()
-            case "inference":
-                self.eval()
     
-    def to(self, device:torch.device):
+    def to(self, device:torch.device, **kwargs):
         self.device = device
-        return super().to(device=device)
+        return super().to(device=device, **kwargs)
         
-    def forward(self, x:dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor]:
-        #fake_B1, fake_B2, fake_B3, plate1, plate2
-        fake_B  = self.netG(
-            x['A0'].to(self.device), x['A1'].to(self.device), x['A2'].to(self.device)
+    def forward(self, x:dict[str, torch.Tensor],on_train:bool=False) -> tuple[torch.Tensor, list[torch.Tensor]|None]:
+        #y, [fake_B3, fake_B2, fake_B1] 
+        return self.netG(
+            x['A0'].to(self.device), x['A1'].to(self.device), x['A2'].to(self.device),
+            layer_out = on_train
         )
-        #, fake_B1, fake_B2, fake_B3, plate1, plate2
-        return fake_B
     
     @torch.no_grad()
     def inference(self, x:np.ndarray, to_cv2:bool=True) -> np.ndarray:
         #fake_B, _ ,_ ,_ ,_, _
-        fake_B = self(self.inference_aug(img=x, map_key='A', L=3, to_batch=True))
+        if self.inference_aug is None:
+            self.inference_aug = Spatial_Pyramid_cv2(org_size=self.on_size) 
         
+        fake_B, _ = self(self.inference_aug(img=x, map_key='A', L=3, to_batch=True), on_train=False)
         return tensor2img(input_image=fake_B[0], to_cv2=to_cv2)
     
     @torch.no_grad()
     def batch_inference(self, x:dict[str, torch.Tensor],to_cv2:bool=True) -> list[np.ndarray]:
-        fake_B, _ ,_ ,_ ,_, _ = self(x)
+        fake_B, _ = self(x, on_train=False)
         fake_B = fake_B.cpu()
         return [tensor2img(fake_Bi, to_cv2=to_cv2) for fake_Bi in fake_B]
         
@@ -76,12 +71,13 @@ class LPDGAN_Trainer(nn.Module):
             gan_mode:Literal['wgangp', 'vanilla']='wgangp',
             pretrained_weights:Optional[Path] = None ,
             checkpoint_dir:Optional[Path]=None,
-            lr:float=0.002,  lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
+            lr:float=0.0002,  lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
             input_channel:int=3, output_channel:int=3, ndf:int = 64,
-            lambda_L1:float=100.0,
+            lambda_L1:float=100.0, plate_loss:Literal['probl1', 'kl']='probl1',
             ocr_percepual:bool=True,
             logger:Optional[Logger]=None, gpu_id:int=0,
-            on_size:tuple[int,int]=(224, 112)
+            on_size:tuple[int,int]=(224, 112),
+            txt_recons_dim:tuple[int, int]=(55, 97)
         ) -> None:
         super().__init__()
         self.device = torch.device(f'cuda:{gpu_id}') if check_gpu_id(gpu_id=gpu_id) else torch.device('cpu')
@@ -93,8 +89,18 @@ class LPDGAN_Trainer(nn.Module):
         self.metric = 0
         self.lr_policy = lr_policy
         self.lambda_L1 = lambda_L1
+        self.plate_loss_type = plate_loss
+        self.plate_loss = TXT_REC_LOSSES[plate_loss]
 
-        self.netG = SwinTrans_G(mode='train', on_size=on_size)
+        #swin transformer
+        self.netG = SwinTrans_G(on_size=on_size)
+        
+        #Multi-res output and text reconstruction modules
+        self.netMBO = MBOSys(
+            img_sizes = [(14, 28), (28, 56), (56, 112)],
+            embed_dims = [384, 192, 96],
+            txt_seq=txt_recons_dim
+        )
 
         self.netD = NLayerDiscriminator(
             self.input_channel + self.output_channel, 
@@ -127,11 +133,11 @@ class LPDGAN_Trainer(nn.Module):
             )
         )
         
-        self.model_names = ['G','D', 'D_smallblock', 'D1', 'D2']
+        self.model_names = ['G','MBO','D', 'D_smallblock', 'D1', 'D2']
         self.load_nets(target=self.model_names, pretrained_dir = pretrained_weights, logger=logger)
         self._net_to_device(target=self.model_names)
 
-        self.loss_names = ['G_GAN', 'G_L1', 'PlateNum_L1', 'D_GAN', 'P_loss', 'D_real', 'D_fake', 'D_s']
+        self.loss_names = ['G_GAN', 'G_L1', 'PlateNum', 'D_GAN', 'P_loss', 'D_real', 'D_fake', 'D_s']
         self.criterionL1 = torch.nn.L1Loss()
         self.criterionGAN = GANLoss(gan_mode).to(self.device)
         self.criterionGAN_s = GANLoss('lsgan').to(self.device)
@@ -171,17 +177,22 @@ class LPDGAN_Trainer(nn.Module):
         self.real_A = input_x['A0'].to(self.device)
         self.real_A1 = input_x['A1'].to(self.device)
         self.real_A2 = input_x['A2'].to(self.device)
-        self.image_paths = input_x['A_paths']
+        self.image_paths = input_x['A_paths'] if 'A_paths' in input_x else None
         self.real_B = input_x['B0'].to(self.device)
         self.real_B1 = input_x['B1'].to(self.device)
         self.real_B2 = input_x['B2'].to(self.device)
         self.real_B3 = input_x['B3'].to(self.device)
         self.plate_info = input_x['plate_info'].to(self.device)
 
-        self.fake_B, self.fake_B1, self.fake_B2, self.fake_B3, \
-            self.plate1, self.plate2 = self.netG(
-                {'A0':self.real_A, 'A1':self.real_A1, 'A2':self.real_A2}
-            )
+        self.fake_B, ret = self.netG(
+            {'A0':self.real_A, 'A1':self.real_A1, 'A2':self.real_A2},
+            on_train=True
+        )
+        
+        self.fake_B3, _ = self.netMBO(ret[0], layer_idx=0)
+        self.fake_B2, self.plate2 = self.netMBO(ret[1], layer_idx=1)
+        self.fake_B1, self.plate1 = self.netMBO(ret[2], layer_idx=2)
+        
         self.fake_B_split = torch.chunk(self.fake_B, 7, dim=3)
         self.real_B_split = torch.chunk(self.real_B, 7, dim=3)
         self.real_A_split = torch.chunk(self.real_A, 7, dim=3)
@@ -291,13 +302,15 @@ class LPDGAN_Trainer(nn.Module):
         loss_P_loss3:torch.Tensor = self.perceptualLoss(self.fake_B3, self.real_B3)
 
         self.loss_P_loss = (loss_P_loss + loss_P_loss1 + loss_P_loss2 + loss_P_loss3) / 4 * 0.01
-
-        self.loss_PlateNum_L1:torch.Tensor = (
-            self.criterionL1(self.plate1, self.plate_info) + \
-            self.criterionL1(self.plate2, self.plate_info)
+        
+        self.loss_PlateNum:torch.Tensor = (
+            self.plate_loss(self.plate1, self.plate_info) + \
+            self.plate_loss(self.plate2, self.plate_info)
         ) / 2 * 0.01
+        if self.plate_loss_type == "kl":
+            self.loss_PlateNum /= 5.0
 
-        self.loss_G = self.loss_G_GAN + self.loss_G_s + self.loss_G_L1 + self.loss_P_loss + 0.1 * self.loss_PlateNum_L1
+        self.loss_G = self.loss_G_GAN + self.loss_G_s + self.loss_G_L1 + self.loss_P_loss + 0.1 * self.loss_PlateNum
         self.loss_G.backward()
 
     #enter point : optimize the paras
