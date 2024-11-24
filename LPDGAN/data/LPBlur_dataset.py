@@ -12,22 +12,12 @@ from typing import Optional, Literal
 from torch.utils.data import Dataset
 import torch
 import json
-import easyocr
 import torch.nn as nn
 import numpy as np
 from .sp import Spatial_Pyramid_cv2
+from .rec import EXT_MAP
 
 __all__ = ["LP_Deblur_Inference_Dataset", "LP_Deblur_OCR_Valiation_Dataset", "LP_Deblur_Dataset"]
-
-def get_easy_ocr_rcnn():
-    reader = easyocr.Reader(['en'], gpu=False)  # You can set gpu=True if you have a GPU
-    # Access the recognition model (CRNN)
-    fe = reader.recognizer
-    for param in fe.parameters():
-        param.requires_grad = False
-    fe.eval()
-    return fe  
-
 
 flatten2D = lambda  nested_list: [item for sublist in nested_list for item in sublist]
 
@@ -83,30 +73,44 @@ class LP_Deblur_OCR_Valiation_Dataset(LP_Deblur_Inference_Dataset):
 
 class LP_Deblur_Dataset(Dataset):
     
-    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None, cache=True) -> None:
+    def __init__(
+        self, data_root:Path, blur_aug:list[str], 
+        extraction:Literal['easyocr', 'paddleocr']='paddleocr',
+        org_size:tuple[int, int]= (224, 112), 
+        cached_file:Optional[Path]=None, cache_name:Optional[Path]=None
+    ) -> None:
         
         super().__init__()
-        self.mode = mode
         self.org_size = org_size
-        
-        self.ocr = PaddleOCR(use_angle_cls=True, lang="en")
- 
+        self.extraction = extraction
         self.blur_aug = blur_aug
         self.sharp_root = data_root/"sharp"
-        log=data_root/"cache.pth"
-        self.txt_info = None
         
-        if log.is_file():
-            self.txt_info = torch.load(log)
+        self.txt_info = None
+        ext_flag = False
+        if cached_file is not None:
+            if cached_file.is_file():
+                self.txt_info = torch.load(cached_file)
+            else:
+                ext_flag=True
         else:
+            ext_flag = True
+        
+        if ext_flag:
             self.txt_info = {}
             for imgid in tqdm([_.name for _ in (self.sharp_root).glob("*.jpg")]):
-                txt_tensor = self.get_text_info(img=self.sharp_root/imgid) 
+                txt_tensor = EXT_MAP[self.extraction](img=self.sharp_root/imgid, on_size=self.org_size) 
                 if len(txt_tensor):
                     self.txt_info[imgid] = txt_tensor
-            if cache:
-                torch.save(self.txt_info, log)
-            
+            if cache_name is not None:
+                if not cache_name.parent.is_dir():
+                    cache_name.parent.mkdir(parents=True, exist_ok=True)
+                torch.save(self.txt_info, cache_name)
+       
+        self.txt_d = tuple(
+            self.txt_info[list(self.txt_info.keys())[0]].size()
+        )
+        
         self.sharp_blur_pairs: list[tuple[Path, Path]] = flatten2D([
             [
                 (self.sharp_root/f"{imgid}", Path(data_root)/f"{b}"/f"{imgid}") 
@@ -122,8 +126,7 @@ class LP_Deblur_Dataset(Dataset):
                 assert int(t[1].stem) == int(t[0].stem) 
         
         self.N_pairs = len(self.sharp_blur_pairs)
-        self.sp = Spatial_Pyramid_cv2(org_size=self.org_size, origin_brightness=on_brightness)
-
+        self.sp = Spatial_Pyramid_cv2(org_size=self.org_size)
 
     def __len__(self)->int:
         return self.N_pairs
@@ -141,24 +144,3 @@ class LP_Deblur_Dataset(Dataset):
         r['B_paths']= str(ps[1])
         
         return r
-    
-    def get_text_info(self, img:Path) -> torch.Tensor:
-             
-        def count_area(d)->int:    
-            if d is None:
-                return 0
-            return (d[0][1][0] - d[0][0][0])*(d[0][2][1] - d[0][0][1])
-        
-        i = L_CLAHE(normalize_brightness(cv2.resize(cv2.imread(img), self.org_size)))
-        result = self.ocr.ocr(i, cls=True)[0]
-        
-        if result is None:
-            return []
-        
-        main_patch = np.argmax(np.array([count_area(r) for r in result]))
-        t= torch.from_numpy(result[main_patch][1][2])
-        if len(t) < 10:
-            t = torch.cat([t, torch.zeros(10-len(t))])
-        elif len(t)>10:
-            raise ValueError(f"{img} in paddle OCR get too long region")
-        return t
