@@ -88,7 +88,11 @@ def main(args:Namespace):
     reproducible(seed=args.seed)
     
     dataset_root:Path = args.data_root
-    dataset = LP_Deblur_Dataset(data_root = dataset_root, mode='train', blur_aug = args.blur_aug)
+    dataset = LP_Deblur_Dataset(
+        data_root = dataset_root, blur_aug = args.blur_aug,
+        extraction=args.txt_extract, 
+        cache_name=args.txt_cached, cached_file=args.txt_cached
+    )
     logger.info(f'The number of training pairs = {len(dataset)}')
     trainloader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, 
@@ -120,7 +124,9 @@ def main(args:Namespace):
         gan_mode=args.gan_mode,
         lr=args.lr, lr_policy=args.lr_policy, lambda_L1=args.lambda_L1, 
         ocr_percepual=args.ocr_perceptual,
-        gpu_id=args.gpu_id
+        gpu_id=args.gpu_id,
+        txt_recons_dim=dataset.txt_d,
+        plate_loss =args.txt_loss
     )
     
     total_iters = 0
@@ -174,9 +180,12 @@ def main(args:Namespace):
 if __name__ == "__main__":
     
     parser = ArgumentParser()
+
     # Data path
     parser.add_argument("--data_root", type=Path, default=Path("./dataset")/"tw"/"new")
     parser.add_argument("--blur_aug", nargs='+', type=str, default='all')
+    parser.add_argument("--txt_cached", type=Path, default=None)
+    parser.add_argument("--txt_extract", type=str, default='paddleocr')
 
     parser.add_argument("--val_data_root", type=Path, default=None)
     parser.add_argument("--label_file", type=Path, default=None)
@@ -215,6 +224,7 @@ if __name__ == "__main__":
     # Loss function
     parser.add_argument("--ocr_perceptual", action='store_false')
     parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
+    parser.add_argument('--txt_loss', type=str, default='probl1')
     parser.add_argument('--print_freq', type=int, default=10400)
 
     args = parser.parse_args()
@@ -222,5 +232,5 @@ if __name__ == "__main__":
         args.blur_aug = [_.name for _ in args.data_root.iterdir() if _.name != "sharp" and _.is_dir()]
     
     print(args)
-    _ = input("ok ?")
+    #_ = input("ok ?")
     main(args)
