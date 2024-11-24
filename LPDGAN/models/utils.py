@@ -7,6 +7,9 @@ import os
 sys.path.append(str(Path(os.path.abspath(__file__)).parent/"logger"))"""
 from ..logger import print_infomation
 
+def numerical_stability(logit:torch.Tensor) -> torch.Tensor:
+    return logit - logit.max(dim=-1, keepdim=True)[0]
+
 def load_networks(net:torch.nn.Module, pretrained_ckpt:Path, logger:Optional[Logger]=None, show_log=True) -> None:
     
     if show_log:

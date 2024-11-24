@@ -4,10 +4,13 @@ import functools
 from torch.optim import lr_scheduler
 import torchvision.models as models
 import torchvision.transforms as transforms
-from .swin_transformer import SwinTransformerSys
+from .swin_transformer import SwinTransformerSys, MBOSys
 import copy
 from torchvision.models import VGG19_Weights
 from typing import Literal
+import torch.nn.functional as F
+from .utils import numerical_stability
+
 def get_scheduler(optimizer, n_epochs:int, n_epochs_decay:int, lr_decay_iters:int, lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear'):
     if lr_policy == 'linear':
         def lambda_rule(epoch):
@@ -24,6 +27,19 @@ def get_scheduler(optimizer, n_epochs:int, n_epochs_decay:int, lr_decay_iters:in
         return NotImplementedError(f'learning rate policy {lr_policy} is not implemented')
     return scheduler
 
+def kl_divergen(pred:torch.Tensor, gth_prob:torch.Tensor) -> torch.Tensor:
+    # Log-probabilities for logits1
+    logits1_log_softmax = F.log_softmax(numerical_stability(pred), dim=-1)  
+    kl_loss = F.kl_div(logits1_log_softmax, gth_prob, reduction='batchmean')
+    return kl_loss
+
+def logit_l1(pred:torch.Tensor, gth_prob:torch.Tensor) -> torch.Tensor:
+    return F.l1_loss(numerical_stability(pred), gth_prob)
+
+TXT_REC_LOSSES = {
+    'probl1':logit_l1,
+    'kl': kl_divergen
+}
 
 class GANLoss(nn.Module):
 
@@ -101,6 +117,7 @@ class PerceptualLoss(nn.Module):
         return self.get_loss(fakeIm, realIm)
 
 class SwinTransformer_Backbone(nn.Module):
+    
     def __init__(self, config, img_size=224, num_classes=3, zero_head=False, vis=False):
         super(SwinTransformer_Backbone, self).__init__()
         self.org_size = img_size
@@ -125,11 +142,10 @@ class SwinTransformer_Backbone(nn.Module):
                                 patch_norm=config.MODEL.SWIN.PATCH_NORM,
                                 use_checkpoint=config.TRAIN.USE_CHECKPOINT)
 
-    def forward(self, x, x1, x2):
+    def forward(self, x:torch.Tensor, x1:torch.Tensor, x2:torch.Tensor, layer_out:bool=False)->tuple[torch.Tensor | list[torch.Tensor]|None]:
         if x.size()[1] == 1:
             x = x.repeat(1,3,1,1)
-        y, y1, y2, y3, p1, p2 = self.swin_unet(x, x1, x2)
-        return y, y1, y2, y3, p1, p2
+        return self.swin_unet(x, x1, x2, layer_out=layer_out)
 
     def unfreeze(self):
         for param in self.inception.parameters():

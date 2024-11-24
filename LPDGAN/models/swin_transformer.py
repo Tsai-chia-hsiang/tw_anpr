@@ -42,7 +42,7 @@ class CNN_Block(nn.Module):
 
 
 class CNN_Linear(nn.Module):
-    def __init__(self, input_ch, h_w):
+    def __init__(self, input_ch, h_w, seq_len:int, num_class:int=97):
         super(CNN_Linear, self).__init__()
         self.conv1 = nn.Conv1d(in_channels=input_ch, out_channels=128, kernel_size=3, padding=1)
         self.norm1 = nn.BatchNorm1d(128)
@@ -50,9 +50,11 @@ class CNN_Linear(nn.Module):
         self.norm2 = nn.BatchNorm1d(64)
 
         #self.fc = nn.Linear(64 * h_w, 21 * 78)
-        self.fc = nn.Linear(64 * h_w, 10 * 97)
+        self.seq_len = seq_len
+        self.num_class = num_class
+        self.fc = nn.Linear(64 * h_w, self.seq_len * self.num_class)
 
-    def forward(self, x):
+    def forward(self, x:torch.Tensor):
         x = x.permute(0, 2, 1)
 
         x = F.relu(self.norm1(self.conv1(x)))
@@ -61,11 +63,7 @@ class CNN_Linear(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        #x = x.view(-1, 21, 78)
-        x = x.view(-1, 10, 97)
-        x = F.softmax(x, dim=2)
-
-        x = torch.argmax(x, dim=2)
+        x = x.view(-1, self.seq_len, self.num_class)
 
         return x
 
@@ -925,8 +923,49 @@ class MSTO_Block(nn.Module):
         return x
 
 
+class MBOSys(nn.Module):
+    
+    def __init__(
+        self, 
+        img_sizes=[(14, 28), (28, 56), (56, 112)], 
+        embed_dims=[384, 192, 96], 
+        txt_seq:tuple[int, int]=(55, 97),
+        patch_size=(2, 4), in_chans=3, num_classes=3,
+        depths=[2], num_heads=[3], window_size=7,
+        mlp_ratio=4., qkv_bias=True, 
+        drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
+        use_checkpoint=False 
+    ):
+        super().__init__()
+        
+        self.MBOs = nn.ModuleList([
+            MSTO_Block(
+                img_size=s, embed_dim=d, depths=depths,
+                patch_size=patch_size, in_chans=in_chans,
+                num_classes=num_classes,num_heads=num_heads,
+                window_size=window_size, mlp_ratio=mlp_ratio,qkv_bias=qkv_bias,
+                drop_rate=drop_rate, drop_path_rate=drop_path_rate,
+                patch_norm=patch_norm,use_checkpoint=use_checkpoint
+            )
+            for s, d in zip(img_sizes, embed_dims)
+        ])
+        self.cnn_blocks = nn.ModuleList([
+            CNN_Linear(embed_dims[1], 196, seq_len=txt_seq[0], num_class=txt_seq[1]),
+            CNN_Linear(embed_dims[2], 784, seq_len=txt_seq[0], num_class=txt_seq[1])
+        ])
+ 
+    def forward(self, x:torch.Tensor, layer_idx:int) -> tuple[torch.Tensor, torch.Tensor|None]:
+        plate_num_l = None
+        if layer_idx > 0:
+            plate_num_l = self.cnn_blocks[layer_idx-1](x)
+        y_l = self.MBOs[layer_idx](x)  
+        return y_l, plate_num_l
+
+
+
 class SwinTransformerSys(nn.Module):
-    r""" Swin Transformer
+    r""" 
+    Swin Transformer
         A PyTorch impl of : `Swin Transformer: Hierarchical Vision Transformer using Shifted Windows`  -
           https://arxiv.org/pdf/2103.14030
 
@@ -951,18 +990,18 @@ class SwinTransformerSys(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
     """
 
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
-                 embed_dim=96, depths=[2, 2, 2, 2], depths_decoder=[1, 2, 2, 2], num_heads=[3, 6, 12, 24],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
-                 use_checkpoint=False, final_upsample="expand_first", **kwargs):
+    def __init__(
+        self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
+        embed_dim=96, num_heads=[3, 6, 12, 24],
+        depths=[2, 2, 2, 2], depths_decoder=[1, 2, 2, 2],
+        window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
+        drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+        norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
+        use_checkpoint=False, final_upsample="expand_first",
+        **kwargs
+    ):
         super().__init__()
 
-        #print(
-        #    "SwinTransformerSys expand initial----depths:{};depths_decoder:{};drop_path_rate:{};num_classes:{}".format(
-        #        depths,
-        #        depths_decoder, drop_path_rate, num_classes))
 
         self.num_classes = num_classes
         self.num_layers = len(depths)
@@ -992,42 +1031,6 @@ class SwinTransformerSys(nn.Module):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
         # build encoder and bottleneck layers
-        """
-        self.layers = nn.ModuleList()
-        for i_layer in range(self.num_layers):
-            layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
-                               input_resolution=(patches_resolution[0] // (2 ** i_layer),
-                                                 patches_resolution[1] // (2 ** i_layer)),
-                               depth=depths[i_layer],
-                               num_heads=num_heads[i_layer],
-                               window_size=window_size,
-                               mlp_ratio=self.mlp_ratio,
-                               qkv_bias=qkv_bias, qk_scale=qk_scale,
-                               drop=drop_rate, attn_drop=attn_drop_rate,
-                               drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
-                               norm_layer=norm_layer,
-                               downsample=PatchMerging if (i_layer < self.num_layers - 1) else None,
-                               use_checkpoint=use_checkpoint)
-            self.layers.append(layer)
-
-        self.MBO1 = MSTO_Block(img_size=(56, 112), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=96,
-                               depths=[2], num_heads=[3], window_size=7,
-                               mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
-                               use_checkpoint=False)
-
-        self.MBO2 = MSTO_Block(img_size=(28, 56), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=192,
-                               depths=[2], num_heads=[3], window_size=7,
-                               mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
-                               use_checkpoint=False)
-
-        self.MBO3 = MSTO_Block(img_size=(14, 28), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=384,
-                               depths=[2], num_heads=[3], window_size=7,
-                               mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
-                               use_checkpoint=False)
-
-        self.CNN_block1 = CNN_Linear(96, 784)
-        self.CNN_block2 = CNN_Linear(192, 196)
-        """
         self.IE0 = Input_Extracter(img_size=(112, 224), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=48,
                                    depths=[2, 2, 2, 2], num_heads=[3, 6, 12, 24], window_size=7,
                                    mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
@@ -1078,13 +1081,12 @@ class SwinTransformerSys(nn.Module):
                                          use_checkpoint=use_checkpoint)
             self.layers_up.append(layer_up)
             self.concat_back_dim.append(concat_linear)
-
+        
+     
         self.norm = norm_layer(self.num_features)
         self.norm_up = norm_layer(self.embed_dim)
 
         if self.final_upsample == "expand_first":
-            # print("---final upsample expand_first---")
-            # self.up = FinalPatchExpand_X4(input_resolution=(img_size//patch_size,img_size//patch_size),dim_scale=4,dim=embed_dim)
             self.up = FinalPatchExpand_X4(input_resolution=(img_size[0] // patch_size[0], img_size[1] // patch_size[1]),
                                           dim_scale=4, dim=embed_dim)
             self.output = nn.Conv2d(in_channels=embed_dim, out_channels=self.num_classes, kernel_size=1, bias=False)
@@ -1140,27 +1142,19 @@ class SwinTransformerSys(nn.Module):
         return final_fusion
 
     # Decoder and Skip connection
-    def forward_up_features(self, x):
+    def forward_up_features(self, x:torch.Tensor, layer_out=False)->tuple[torch.Tensor, list[torch.Tensor]|None]:
+        
+        ret = [None]*3 if layer_out else None
+        #y3, y2, y1
         for inx, layer_up in enumerate(self.layers_up):
+            if ret is not None and inx < 3:
+                ret[inx] = x
             x = layer_up(x)
-            """
-            if inx == 0:
-                self.y3 = self.MBO3(x)
-                x = layer_up(x)
-
-            else:
-                if inx == 1:
-                    self.plate_num2 = self.CNN_block2(x)
-                    self.y2 = self.MBO2(x)
-                elif inx == 2:
-                    self.plate_num1 = self.CNN_block1(x)
-                    self.y1 = self.MBO1(x)
-                x = layer_up(x)
-            """
+        
         x = self.norm_up(x)  # B L C
-        return x
+        return x, ret
 
-    def up_x4(self, x):
+    def up_x4(self, x:torch.Tensor):
         H, W = self.patches_resolution
         B, L, C = x.shape
         assert L == H * W, "input features has wrong size"
@@ -1173,18 +1167,10 @@ class SwinTransformerSys(nn.Module):
 
         return x
 
-    def forward(self, x, x1, x2):
+    def forward(self, x, x1, x2, layer_out:bool=False)->tuple[torch.Tensor, list[torch.Tensor]|None]:
         x = self.forward_features(x, x1, x2)
-        x = self.forward_up_features(x)
+        #y, [y3, y2, y1]
+        x, ret = self.forward_up_features(x, layer_out=layer_out)
+
         x = self.up_x4(x)
-
-        return x, #self.y1, self.y2, self.y3, self.plate_num1, self.plate_num2
-
-    def flops(self):
-        flops = 0
-        flops += self.patch_embed.flops()
-        for i, layer in enumerate(self.layers):
-            flops += layer.flops()
-        flops += self.num_features * self.patches_resolution[0] * self.patches_resolution[1] // (2 ** self.num_layers)
-        flops += self.num_features * self.num_classes
-        return flops
+        return x, ret 
