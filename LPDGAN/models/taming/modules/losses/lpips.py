@@ -41,7 +41,7 @@ class OCR_CRAFT_LPIPS(nn.Module):
         feats0, feats1, diffs = {}, {}, {}
         for kk in range(len(self.chns)):
             feats0[kk], feats1[kk] = normalize_tensor(outs0[kk]), normalize_tensor(outs1[kk])
-            diffs[kk] = (feats0[kk] - feats1[kk]) ** 2
+            diffs[kk] = (feats0[kk].detach() - feats1[kk]) ** 2
 
         res = [spatial_average(diffs[kk].sum(dim=1, keepdim=True), keepdim=True) for kk in range(len(self.chns))]
         val = res[0]
