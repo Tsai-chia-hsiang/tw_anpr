@@ -89,7 +89,7 @@ class LPDGAN_Trainer(nn.Module):
         self.metric = 0
         self.lr_policy = lr_policy
         self.lambda_L1 = lambda_L1
-        self.plate_loss_type = plate_loss
+        self.plate_loss_w = 0.001 if plate_loss == "kl" else 0.01
         self.plate_loss = TXT_REC_LOSSES[plate_loss]
 
         #swin transformer
@@ -306,10 +306,8 @@ class LPDGAN_Trainer(nn.Module):
         self.loss_PlateNum:torch.Tensor = (
             self.plate_loss(self.plate1, self.plate_info) + \
             self.plate_loss(self.plate2, self.plate_info)
-        ) / 2 * 0.01
-        if self.plate_loss_type == "kl":
-            self.loss_PlateNum /= 5.0
-
+        ) / 2 * self.plate_loss_w
+       
         self.loss_G = self.loss_G_GAN + self.loss_G_s + self.loss_G_L1 + self.loss_P_loss + 0.1 * self.loss_PlateNum
         self.loss_G.backward()
 
