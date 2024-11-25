@@ -231,6 +231,6 @@ if __name__ == "__main__":
     if args.blur_aug == "all":
         args.blur_aug = [_.name for _ in args.data_root.iterdir() if _.name != "sharp" and _.is_dir()]
     
-    print(args)
-    #_ = input("ok ?")
+    # print(args)
+    # _ = input("ok ?")
     main(args)
