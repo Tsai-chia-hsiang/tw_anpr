@@ -28,7 +28,7 @@
     - ```~/.paddleocr/whl/rec/en/en_PP-OCRv4_rec_infer.tar```
 
 ## NOTE
-I have modify the code from paddleOCR :
+I have modified the code from paddleOCR :
 [function decode() at line 136 at paddleocr/ppocr/postprocess/rec_postprocess.py](https://github.com/PaddlePaddle/PaddleOCR/blob/0accd260000a627d0bcbdaad5b042b6e2f56ac3b/ppocr/postprocess/rec_postprocess.py#L186) 
 
 adding a argument ```raw_prob=None``` to it and modify the output 
