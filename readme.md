@@ -139,6 +139,32 @@ Then it will save the epoch with the __best validation OCR accuracy__ among the 
     - data_root: The root directory where testing images are stored. During execution, each image filename in ```label_file``` will be combined with ```data_root``` to form the path for each test image.
         - e.g., ```--data_root ./dataset/third_party/blur/```, with the sample label_file above, the full paths for images in ```ocr_eval.py``` will be ```["./dataset/third_party/blur/1.jpg", "./dataset/third_party/blur/2.jpg", ...]```, and the labels will be generated in the order specified by ```label_file``` as ```["AAA0000", "BB111", ...]```
 
+### Validation on cruiser dataset
+
+Shared settings:
+
+|Total Epochs| Batch size |  text extraction module |validation cycle |
+|:----:|:----:|:----:|:----:|
+|200|15| paddle OCR|5|
+
+- [Old dataset](./dataset/tw/old/readme.md)
+
+|initial lr| epochs lr fix | epochs lr linearly decay to 0 | LCS rate | OCR accuracy |
+|:----:|:----:|:----:|:----:|:----:|
+|$2\times 10^{-4}$|25|175|||
+|$1\times 10^{-4}$|100|100||
+|$1\times 10^{-4}$|25|175||
+
+- [New dataset](./dataset/tw/new/readme.md)
+
+|initial lr| epochs lr fix | epochs lr linearly decay to 0 | LCS rate | OCR accuracy |
+|:----:|:----:|:----:|:----:|:----:|
+|$2\times 10^{-4}$|25|175|||
+|$1\times 10^{-4}$|100|100||
+|$1\times 10^{-4}$|25|175||
+
+
+
 ## Execution for License Plate Recognition
 ### Usage
 Refer to [```unit_inference.py```](./unit_inference.py) for examples.
