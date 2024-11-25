@@ -125,3 +125,33 @@ def blur_little(src):
     aug = gblur(aug, ksize=7, sigma=5)   
     return aug
 
+if __name__ == "__main__":
+    with open("./tw/old/img_ids.json", "r") as f:
+        old = json.load(f)
+    imgs = [_ for _ in Path("./tw/new/sharp").glob("*.jpg") if _.stem not in old]
+    R = Path("./tw/new/")
+
+    blur_dir =R/"blur"
+    blur_dir.mkdir(parents=True, exist_ok=True)
+
+    blur_little_dir = R/"blur_little"
+    blur_little_dir.mkdir(parents=True, exist_ok=True)
+
+    blur_median_dir = R/"blur_median"
+    blur_median_dir.mkdir(parents=True, exist_ok=True)
+    
+    blur_mosiac_dir = R/"blur_mosiac"
+    blur_mosiac_dir.mkdir(parents=True, exist_ok=True)
+
+    
+    for i_path in tqdm(imgs):
+        iid = i_path.name
+        img_i = cv2.imread(i_path)
+
+        cv2.imwrite(blur_dir/iid, blur(src=img_i))
+
+        cv2.imwrite(blur_little_dir/iid, blur_little(src=img_i))
+ 
+        cv2.imwrite(blur_median_dir/iid, blur_median(src=img_i))
+
+        cv2.imwrite(blur_mosiac_dir/iid, blur_mosiac(src=img_i))
