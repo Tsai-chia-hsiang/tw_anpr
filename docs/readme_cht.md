@@ -30,6 +30,20 @@ Python >= 3.10
     - ```~/.paddleocr/whl/rec/en/en_PP-OCRv4_rec_infer/en_PP-OCRv4_rec_infer.tar```
 
 
+## NOTE
+I have modify the code from paddleOCR :
+[line 186 at paddleocr/ppocr/postprocess/rec_postprocess.py](https://github.com/PaddlePaddle/PaddleOCR/blob/0accd260000a627d0bcbdaad5b042b6e2f56ac3b/ppocr/postprocess/rec_postprocess.py#L186) 
+from 
+```
+result_list.append((text, np.mean(conf_list).tolist()))
+```
+to 
+```
+result_list.append((text, np.mean(conf_list).tolist(), conf_list))
+```
+
+For getting logit for each detected-character
+
 ## Deblur
 - 採用 LPDGAN (論文 : [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) 來對車牌進行去模糊的處理，目的為加強OCR 對車牌辨識的準確性
 ### Train:
@@ -127,8 +141,6 @@ e.g.:
 **以上指令 demo 用的圖片由於是隱私的資料及，如果真的想執行，請到 https://drive.google.com/file/d/1W7kjO5eJXpqG11BtDkuL0MsdQdxB7SL2/view?usp=sharing 要求權限。
 - 請說明身分
 
-## TODO
-[TODO](./TODO.md)
 
 ## Acknowledgments
 

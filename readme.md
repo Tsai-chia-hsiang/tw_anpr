@@ -2,6 +2,11 @@
 
 [繁體中文](./docs/readme_cht.md)
 
+
+## TODO
+- [ ] Check new dataset, it seems having some problem
+- [ ] Try https://github.com/frotms/PaddleOCR2Pytorch.git to see if paddleOCR can be converted to torch and utilze the training script
+
 ## pipeline:
 <img src="./docs/anplr.png">
 
@@ -29,6 +34,20 @@
 
     - ```~/.paddleocr/whl/det/en/en_PP-OCRv3_det_infer.tar```
     - ```~/.paddleocr/whl/rec/en/en_PP-OCRv4_rec_infer.tar```
+
+## NOTE
+I have modify the code from paddleOCR :
+[line 186 at paddleocr/ppocr/postprocess/rec_postprocess.py](https://github.com/PaddlePaddle/PaddleOCR/blob/0accd260000a627d0bcbdaad5b042b6e2f56ac3b/ppocr/postprocess/rec_postprocess.py#L186) 
+from 
+```
+result_list.append((text, np.mean(conf_list).tolist()))
+```
+to 
+```
+result_list.append((text, np.mean(conf_list).tolist(), conf_list))
+```
+
+For getting logit for each detected-character
 
 ## Deblur
 - The LPDGAN model (paper: [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) is used for deblurring license plates to enhance the accuracy of OCR-based license plate recognition.
@@ -126,8 +145,6 @@ Example:
 **image of above demo command is from private data.** If you would like to run the demo, please request access at the following link: [Google Drive Link](https://drive.google.com/file/d/1W7kjO5eJXpqG11BtDkuL0MsdQdxB7SL2/view?usp=sharing).
 - Please provide your identity and reason for requesting access.
 
-## TODO
-[TODO](./docs/TODO.md)
 
 ## Acknowledgments
 
