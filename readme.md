@@ -142,27 +142,48 @@ Then it will save the epoch with the __best validation OCR accuracy__ among the 
 ### Validation on cruiser dataset
 - Number of validation license plate : 1485
 
-Shared settings:
+| LCS rate baseline | OCR accuracy baseline |
+|:----:|:----:|
+|0.51|0.49|
 
-|Total Epochs| Batch size |  text extraction module |validation cycle | LCS rate baseline | OCR accuracy baseline |
-|:----:|:----:|:----:|:----:|:----:|:----:|
-|200|15| paddle OCR|5|0.49|0.51|
+#### Abluation study for Text Extraction Module 
+- For Text L1 Loss
+- On [New dataset](./dataset/tw/new/readme.md)
+- Shared settings:
 
-- [Old dataset](./dataset/tw/old/readme.md)
+    |Batch size|inital lr| epochs lr fix | epochs lr linearly decay to 0 |validation cycle|
+    |:----:|:----:|:----:|:----:|:----:|
+    |15|$2\times 10^{-4}$|100|100|5|
 
+|Text Extraction Module| LCS rate | OCR accuracy |
+|:----:|:----:|:----:|
+|pretrained CRNN from [easyocr](https://github.com/JaidedAI/EasyOCR.git)|205 tmux 2|205 tmux 2|
+|paddleOCR|205 tmux 3|205 tmux 3|
+
+#### Ablation study for Initial LR and Scheduling epochs 
+- Shared settings:
+
+    |Batch size | text extraction module |validation cycle 
+    |:----:|:----:|:----:|
+    |15| paddle OCR|5|
+
+[Old dataset](./dataset/tw/old/readme.md)
 |initial lr| epochs lr fix | epochs lr linearly decay to 0 | LCS rate | OCR accuracy |
 |:----:|:----:|:----:|:----:|:----:|
-|$2\times 10^{-4}$|25|175|||
-|$1\times 10^{-4}$|100|100||
-|$1\times 10^{-4}$|25|175||
+|$1\times 10^{-4}$|100|100|126 tmux 8| 126 tmux 8|
+|$1\times 10^{-4}$|25|175|126 tmux 4| 126 tmux 4|
+|$2\times 10^{-4}$|100|100|TODO|TODO|
+|$2\times 10^{-4}$|25|175|TODO|TODO|
 
-- [New dataset](./dataset/tw/new/readme.md)
-
+[New dataset](./dataset/tw/new/readme.md)
 |initial lr| epochs lr fix | epochs lr linearly decay to 0 | LCS rate | OCR accuracy |
 |:----:|:----:|:----:|:----:|:----:|
-|$2\times 10^{-4}$|25|175|||
-|$1\times 10^{-4}$|100|100||
-|$1\times 10^{-4}$|25|175||
+|$1\times 10^{-4}$|100|100|126 tmux 7| 126 tmux 7|
+|$1\times 10^{-4}$|25|175|126 tmux 3| 126 tmux 3|
+|$2\times 10^{-4}$|100|100|205 tmux 3| 205 tmux 3|
+|$2\times 10^{-4}$|25|175|TODO|TODO|
+
+
 
 
 
