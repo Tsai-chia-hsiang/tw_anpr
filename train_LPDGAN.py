@@ -138,7 +138,7 @@ def main(args:Namespace):
         lpdgan.update_learning_rate(logger=logger)
         bar = tqdm(trainloader)
         
-        iter_val_flag = (args.save_iter) and (total_iters // args.save_iter_freq > save_flag)
+        
         epoch_val_flag = (not args.save_iter) and epoch % args.save_epoch_freq == 0
         
         for data in bar:
@@ -146,6 +146,7 @@ def main(args:Namespace):
             total_iters += n_samples
             lpdgan.optimize_parameters(input_x=data)
             bar.set_postfix(ordered_dict={"iters":total_iters})
+            iter_val_flag = (args.save_iter) and (total_iters // args.save_iter_freq > save_flag)
             
             if epoch_val_flag:
                 # epoch validation policy 
