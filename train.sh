@@ -1,14 +1,14 @@
 DATA_ROOT=./dataset/tw
 TXT_EXT=easyocr
-TXT_CACHED=$DATA_ROOT/old/easyocr.pth
+TXT_CACHED=$DATA_ROOT/$1/easyocr.pth
 VAL_DATA_ROOT=./dataset/labeled/
 LABEL_FILE=./dataset/labeled/北鎮所_labels.json
-TRAIN_BATCH=12
+TRAIN_BATCH=15
 VAL_BATCH=15
 N_EPOCHS=100
 #PRETRAIN=./LPDGAN/checkpoints/old_dataset/latest
 #CKPT=./LPDGAN/checkpoints/old_dataset/latest
-N_EPOCHS_DECAY=0
+N_EPOCHS_DECAY=100
 LR=0.0002
 SAVE_ROOT=./LPDGAN/checkpoints
 SAVE_FEQ=5000
