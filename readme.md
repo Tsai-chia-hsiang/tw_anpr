@@ -1,7 +1,5 @@
 # ANPR for TW license plate
 
-[繁體中文](./docs/readme_cht.md)
-
 
 ## TODO
 - [ ] Check new dataset, it seems having some problem
@@ -13,12 +11,6 @@
 ## Enviroments
 - Python >= 3.10
 - Third-party Packages
-    - numpy
-    - opencv
-    - torch
-    - ultralytics
-    - EasyOCR
-    - Levenshtein
     - paddle
         - CPU version: ```pip install paddlepaddle``` 
             - recommended
@@ -37,17 +29,44 @@
 
 ## NOTE
 I have modify the code from paddleOCR :
-[line 186 at paddleocr/ppocr/postprocess/rec_postprocess.py](https://github.com/PaddlePaddle/PaddleOCR/blob/0accd260000a627d0bcbdaad5b042b6e2f56ac3b/ppocr/postprocess/rec_postprocess.py#L186) 
+[function decode() at line 136 at paddleocr/ppocr/postprocess/rec_postprocess.py](https://github.com/PaddlePaddle/PaddleOCR/blob/0accd260000a627d0bcbdaad5b042b6e2f56ac3b/ppocr/postprocess/rec_postprocess.py#L186) 
+
+adding a argument ```raw_prob=None``` to it and modify the output 
 from 
 ```
 result_list.append((text, np.mean(conf_list).tolist()))
 ```
 to 
 ```
-result_list.append((text, np.mean(conf_list).tolist(), conf_list))
+result_list.append(
+    (text, np.mean(conf_list).tolist(), conf_list) if raw_prob is None
+    else (text, np.mean(conf_list).tolist(), conf_list, raw_prob[batch_idx])
+)
 ```
 
-For getting logit for each detected-character
+And, inside ```CTCLabelDecode __call__()```, I also modify it from 
+```
+text = self.decode(
+    preds_idx,
+    preds_prob,
+    is_remove_duplicate=True,
+    return_word_box=return_word_box,
+)
+```  
+to 
+```
+text = self.decode(
+    preds_idx,
+    preds_prob,
+    is_remove_duplicate=True,
+    return_word_box=return_word_box,
+    raw_prob=preds
+)
+```
+
+For getting the logit
+
+
 
 ## Deblur
 - The LPDGAN model (paper: [A Dataset and Model for Realistic License Plate Deblurring](https://www.ijcai.org/proceedings/2024/0086.pdf)) is used for deblurring license plates to enhance the accuracy of OCR-based license plate recognition.
