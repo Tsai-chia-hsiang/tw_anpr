@@ -140,12 +140,13 @@ Then it will save the epoch with the __best validation OCR accuracy__ among the 
         - e.g., ```--data_root ./dataset/third_party/blur/```, with the sample label_file above, the full paths for images in ```ocr_eval.py``` will be ```["./dataset/third_party/blur/1.jpg", "./dataset/third_party/blur/2.jpg", ...]```, and the labels will be generated in the order specified by ```label_file``` as ```["AAA0000", "BB111", ...]```
 
 ### Validation on cruiser dataset
+- Number of validation license plate : 1485
 
 Shared settings:
 
-|Total Epochs| Batch size |  text extraction module |validation cycle |
-|:----:|:----:|:----:|:----:|
-|200|15| paddle OCR|5|
+|Total Epochs| Batch size |  text extraction module |validation cycle | LCS rate baseline | OCR accuracy baseline |
+|:----:|:----:|:----:|:----:|:----:|:----:|
+|200|15| paddle OCR|5|0.49|0.51|
 
 - [Old dataset](./dataset/tw/old/readme.md)
 
