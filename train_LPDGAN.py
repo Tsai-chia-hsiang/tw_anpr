@@ -1,6 +1,7 @@
 """
 Refactoring from https://github.com/haoyGONG/LPDGAN.git
 """
+import gc
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import shutil
@@ -130,25 +131,37 @@ def main(args:Namespace):
     )
     
     total_iters = 0
-    print_flag = 0
     save_flag = 0
+    epoch_loss = None
     for epoch in range(1, args.n_epochs + args.n_epochs_decay + 1):
         epoch_start_time = time.time()
         lpdgan.update_learning_rate(logger=logger)
         bar = tqdm(trainloader)
-
+        
+        iter_val_flag = (args.save_iter) and (total_iters // args.save_iter_freq > save_flag)
+        epoch_val_flag = (not args.save_iter) and epoch % args.save_epoch_freq == 0
+        
         for data in bar:
             n_samples = len(data['A_paths'])
             total_iters += n_samples
             lpdgan.optimize_parameters(input_x=data)
             bar.set_postfix(ordered_dict={"iters":total_iters})
-            if total_iters // args.print_freq > print_flag:
+            
+            if epoch_val_flag:
+                # epoch validation policy 
+                iter_loss = lpdgan.get_current_losses()
+                if epoch_loss is None:
+                    epoch_loss = iter_loss.copy()
+                else:
+                    for k in iter_loss:
+                        epoch_loss[k] += iter_loss[k]
+
+            if iter_val_flag:
+                # iteration validation policy 
                 iter_loss = lpdgan.get_current_losses()
                 tensorboard_writer.add_scalars("Losses",iter_loss, total_iters)
                 logger.info(f"iters:{total_iters}:{iter_loss}")
-                print_flag = total_iters//args.print_freq
-            
-            if args.save_iter and (total_iters // args.save_iter_freq > save_flag):
+                
                 evaluation_and_save(
                     lpdgan=lpdgan, val_loader=val_loader, eva=validator, 
                     save_dir = args.model_save_root if val_loader is not None \
@@ -156,17 +169,27 @@ def main(args:Namespace):
                     iters=total_iters, board=tensorboard_writer,logger=logger,
                     baseline=baseline
                 )
+                
                 save_flag = total_iters // args.save_iter_freq
 
-        if epoch % args.save_epoch_freq == 0:
+        if epoch_val_flag:
+            # epoch validation policy 
+            for k in epoch_loss:
+                epoch_loss[k] /= len(dataset)
+
+            tensorboard_writer.add_scalars("Losses",epoch_loss, epoch)
+            logger.info(f"epoch:{epoch}:{epoch_loss}")
+
             evaluation_and_save(
                 lpdgan=lpdgan, val_loader=val_loader,
                 eva=validator, 
                 save_dir = args.model_save_root if val_loader is not None \
                     else args.model_save_root /f'epoch_{epoch}',
-                iters=total_iters, board=tensorboard_writer,logger=logger,
+                iters=epoch, board=tensorboard_writer,logger=logger,
                 baseline=baseline, epoch=epoch
             )
+            epoch_loss = None
+            gc.collect()
         
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
         lpdgan.save_networks(save_dir = args.model_save_root/'latest')
