@@ -1,30 +1,28 @@
 import os
 import cv2
+from tqdm import tqdm
+from .aug import L_CLAHE, normalize_brightness
 from pathlib import Path
+from paddleocr import PaddleOCR
+import logging
+from paddleocr.ppocr.utils.logging import get_logger
+_paddle_logger = get_logger()
+_paddle_logger.setLevel(logging.ERROR)
 from typing import Optional, Literal
 from torch.utils.data import Dataset
 import torch
-from torchvision import transforms
 import json
-import easyocr
 import torch.nn as nn
+import numpy as np
 from .sp import Spatial_Pyramid_cv2
+from .rec import EXT_MAP
 
 __all__ = ["LP_Deblur_Inference_Dataset", "LP_Deblur_OCR_Valiation_Dataset", "LP_Deblur_Dataset"]
-
-def get_easy_ocr_rcnn():
-    reader = easyocr.Reader(['en'], gpu=False)  # You can set gpu=True if you have a GPU
-    # Access the recognition model (CRNN)
-    fe = reader.recognizer
-    for param in fe.parameters():
-        param.requires_grad = False
-    fe.eval()
-    return fe  
-
 
 flatten2D = lambda  nested_list: [item for sublist in nested_list for item in sublist]
 
 class LP_Deblur_Inference_Dataset(Dataset):
+    
     def __init__(self, imgs:list[Path], org_size:tuple[int,int]=(224,112), on_brightness:Optional[int]=180):
         super().__init__()
         self.sp = Spatial_Pyramid_cv2(org_size=org_size, origin_brightness=on_brightness)
@@ -67,46 +65,68 @@ class LP_Deblur_OCR_Valiation_Dataset(LP_Deblur_Inference_Dataset):
         with open(label_file, "r") as f:
             l= json.load(f)
         imgs = [dataroot/i for i in l.keys()]
+        for i in imgs:
+            assert i.is_file()
+        
         labels = list(l.values())
         return cls(imgs=imgs, labels=labels, org_size=org_size, on_brightness=on_brightness)
 
 class LP_Deblur_Dataset(Dataset):
     
-    def __init__(self, data_root:Path, blur_aug:list[str], mode:Literal['train', 'test']="train", org_size:tuple[int, int]= (224, 112), on_brightness:Optional[int]=None) -> None:
+    def __init__(
+        self, data_root:Path, blur_aug:list[str], 
+        extraction:Literal['easyocr', 'paddleocr']='paddleocr',
+        org_size:tuple[int, int]= (224, 112), 
+        cached_file:Optional[Path]=None, cache_name:Optional[Path]=None
+    ) -> None:
         
         super().__init__()
-        self.mode = mode
         self.org_size = org_size
-        self.text_crnn, self.advp = None ,None
-        self.need_gth = self.mode == "train"
-        if self.need_gth:
-            self.text_crnn = get_easy_ocr_rcnn()
-            self.advp = nn.AdaptiveMaxPool2d((21, 1))
+        self.extraction = extraction
         self.blur_aug = blur_aug
-        self.sharp_root = Path(data_root)/"sharp"
-        imgids = [_.name for _ in (self.sharp_root).glob("*.jpg")]
-
-        #_ = input(f"using {self.blur_aug} as blur pairs ? ")
+        self.sharp_root = data_root/"sharp"
         
-        self.sharp_blur_pairs = [
+        self.txt_info = None
+        ext_flag = False
+        if cached_file is not None:
+            if cached_file.is_file():
+                self.txt_info = torch.load(cached_file)
+            else:
+                ext_flag=True
+        else:
+            ext_flag = True
+        
+        if ext_flag:
+            self.txt_info = {}
+            for imgid in tqdm([_.name for _ in (self.sharp_root).glob("*.jpg")]):
+                txt_tensor = EXT_MAP[self.extraction](img=self.sharp_root/imgid, on_size=self.org_size) 
+                if len(txt_tensor):
+                    self.txt_info[imgid] = txt_tensor
+            if cache_name is not None:
+                if not cache_name.parent.is_dir():
+                    cache_name.parent.mkdir(parents=True, exist_ok=True)
+                torch.save(self.txt_info, cache_name)
+       
+        self.txt_d = tuple(
+            self.txt_info[list(self.txt_info.keys())[0]].size()
+        )
+        
+        self.sharp_blur_pairs: list[tuple[Path, Path]] = flatten2D([
             [
-                (self.sharp_root/imgid if self.need_gth else None, 
-                Path(data_root)/f"{b}"/imgid) 
-                for imgid in imgids
+                (self.sharp_root/f"{imgid}", Path(data_root)/f"{b}"/f"{imgid}") 
+                for imgid in self.txt_info.keys()
             ] 
             for b in self.blur_aug
-        ]
+        ])
         
-        self.sharp_blur_pairs = flatten2D(self.sharp_blur_pairs)
         for t in self.sharp_blur_pairs:
             assert t[1].is_file(), print(t[1])
             if t[0] is not None:
                 assert t[0].is_file()
                 assert int(t[1].stem) == int(t[0].stem) 
-       
+        
         self.N_pairs = len(self.sharp_blur_pairs)
-        self.sp = Spatial_Pyramid_cv2(org_size=self.org_size, origin_brightness=on_brightness)
-
+        self.sp = Spatial_Pyramid_cv2(org_size=self.org_size)
 
     def __len__(self)->int:
         return self.N_pairs
@@ -114,28 +134,13 @@ class LP_Deblur_Dataset(Dataset):
     def __getitem__(self, idx) -> dict[str, torch.Tensor|str]:
         ps = self.sharp_blur_pairs[idx]
 
-        blur_path = ps[1] if self.need_gth else ps
+        blur_path = ps[1]
         blur_img = cv2.imread(blur_path)  
         r = self.sp(img=blur_img, L=3, map_key="A")
         r['A_paths'] = str(blur_path)
-        
-        if self.need_gth:
-            sharp_image = cv2.imread(ps[0])
-            r['plate_info'] = self.get_text_info(sharp=sharp_image)
-            r = r | self.sp(img=sharp_image, L=4, map_key="B")
-            r['B_paths']= str(ps[1])
+        sharp_image = cv2.imread(ps[0])
+        r['plate_info'] = self.txt_info[ps[0].name]
+        r = r | self.sp(img=sharp_image, L=4, map_key="B")
+        r['B_paths']= str(ps[1])
         
         return r
-        
-    @torch.no_grad()
-    def get_text_info(self, sharp)->torch.Tensor:
-        
-        sharp_im = transforms.ToTensor()(cv2.cvtColor(sharp, cv2.COLOR_BGR2GRAY)).unsqueeze(0) 
-        visual_feature = self.text_crnn.FeatureExtraction(sharp_im)
-        visual_feature = self.text_crnn.AdaptiveAvgPool(visual_feature.permute(0, 3, 1, 2))
-        visual_feature = visual_feature.squeeze(3)
-
-        """ Sequence modeling stage """
-        contextual_feature = self.text_crnn.SequenceModeling(visual_feature).unsqueeze(1)
-        text_f = self.advp(contextual_feature).squeeze()  # Shape: (batch_size, 1, 21, 1)
-        return text_f

@@ -23,14 +23,14 @@ def get_logger(name: str, file: os.PathLike) -> logging.Logger:
 
     return logger
 
-def remove_old_tf_evenfile(ckpt:Path):
-    if not ckpt.exists():
+def remove_old_tf_evenfile(directory:Path):
+    if not directory.is_dir():
         return 
     
     old_board_file = list(
         filter(
             lambda x:'events.out.tfevents.' in x.name,
-            [_ for _ in ckpt.iterdir() if _.is_file()]
+            [_ for _ in directory.iterdir() if _.is_file()]
         )
     )
 
