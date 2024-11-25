@@ -171,17 +171,17 @@ Then it will save the epoch with the __best validation OCR accuracy__ among the 
 |initial lr| epochs lr fix | epochs lr linearly decay to 0 | LCS rate | OCR accuracy |
 |:----:|:----:|:----:|:----:|:----:|
 |$1\times 10^{-4}$|100|100|126 tmux 8| 126 tmux 8|
-|$1\times 10^{-4}$|25|175|126 tmux 4| 126 tmux 4|
+|$1\times 10^{-4}$|50|150|TODO|TODO|
 |$2\times 10^{-4}$|100|100|TODO|TODO|
-|$2\times 10^{-4}$|25|175|TODO|TODO|
+|$2\times 10^{-4}$|50|150|126 tmux 4| 126 tmux 4|
 
 [New dataset](./dataset/tw/new/readme.md)
 |initial lr| epochs lr fix | epochs lr linearly decay to 0 | LCS rate | OCR accuracy |
 |:----:|:----:|:----:|:----:|:----:|
 |$1\times 10^{-4}$|100|100|126 tmux 7| 126 tmux 7|
-|$1\times 10^{-4}$|25|175|126 tmux 3| 126 tmux 3|
+|$1\times 10^{-4}$|50|150|TODO|TODO|
 |$2\times 10^{-4}$|100|100|205 tmux 3| 205 tmux 3|
-|$2\times 10^{-4}$|25|175|TODO|TODO|
+|$2\times 10^{-4}$|50|150|126 tmux 3| 126 tmux 3||
 
 
 
