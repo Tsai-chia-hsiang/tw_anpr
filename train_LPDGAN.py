@@ -134,11 +134,11 @@ def main(args:Namespace):
     save_flag = 0
     epoch_loss = None
     for epoch in range(1, args.n_epochs + args.n_epochs_decay + 1):
+        
         epoch_start_time = time.time()
         lpdgan.update_learning_rate(logger=logger)
         bar = tqdm(trainloader)
-        
-        
+
         epoch_val_flag = (not args.save_iter) and epoch % args.save_epoch_freq == 0
         
         for data in bar:
@@ -219,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--ocr_cer_baseline", type=float, default=0.49)
 
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
-    parser.add_argument("--gpu_id", type=int, default=0)
+    parser.add_argument("--gpu_id", type=str, default='0')
     parser.add_argument("--seed", type=int, default=891122)
 
     # Batch size & epochs & lr scheduler
