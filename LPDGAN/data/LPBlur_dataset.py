@@ -77,7 +77,8 @@ class LP_Deblur_Dataset(Dataset):
         self, data_root:Path, blur_aug:list[str], 
         extraction:Literal['easyocr', 'paddleocr']='paddleocr',
         org_size:tuple[int, int]= (224, 112), 
-        cached_file:Optional[Path]=None, cache_name:Optional[Path]=None
+        cached_file:Optional[Path]=None, cache_name:Optional[Path]=None,
+        preload:bool=False
     ) -> None:
         
         super().__init__()
@@ -127,20 +128,26 @@ class LP_Deblur_Dataset(Dataset):
         
         self.N_pairs = len(self.sharp_blur_pairs)
         self.sp = Spatial_Pyramid_cv2(org_size=self.org_size)
+        self.preload = preload
+        self.buf = {}
+        if self.preload:
+            for i in tqdm(self.sharp_blur_pairs, desc='preloading src images'):
+                if i[0] not in self.buf:
+                    self.buf[i[0]] = self.sp(img=cv2.imread(i[0]), L=4, map_key="B")
+                
+                self.buf[i[1]] = self.sp(img=cv2.imread(i[1]), L=3, map_key="A")
 
     def __len__(self)->int:
         return self.N_pairs
     
     def __getitem__(self, idx) -> dict[str, torch.Tensor|str]:
         ps = self.sharp_blur_pairs[idx]
-
-        blur_path = ps[1]
-        blur_img = cv2.imread(blur_path)  
-        r = self.sp(img=blur_img, L=3, map_key="A")
-        r['A_paths'] = str(blur_path)
-        sharp_image = cv2.imread(ps[0])
+        r = None
+        if not self.preload:
+            r = self.sp(img=cv2.imread(ps[1]), L=3, map_key="A") | \
+                self.sp(img=cv2.imread(ps[0]), L=4, map_key="B")
+        else:
+            r = self.buf[ps[1]]|self.buf[ps[0]]
+        r['A_paths'] = str(ps[1])
         r['plate_info'] = self.txt_info[ps[0].name]
-        r = r | self.sp(img=sharp_image, L=4, map_key="B")
-        r['B_paths']= str(ps[1])
-        
         return r
