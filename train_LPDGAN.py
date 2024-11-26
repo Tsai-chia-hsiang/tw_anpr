@@ -92,16 +92,17 @@ def main(args:Namespace):
     dataset = LP_Deblur_Dataset(
         data_root = dataset_root, blur_aug = args.blur_aug,
         extraction=args.txt_extract, 
-        cache_name=args.txt_cached, cached_file=args.txt_cached
+        cache_name=args.txt_cached, cached_file=args.txt_cached,
+        preload=args.preload
     )
     logger.info(f'The number of training pairs = {len(dataset)}')
     trainloader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, 
-        shuffle=True, num_workers=int(args.num_threads)
+        shuffle=True, num_workers=int(args.num_threads),
     )
     val_dataset = LP_Deblur_OCR_Valiation_Dataset.build_dataset(
         dataroot=args.val_data_root,
-        label_file=args.label_file
+        label_file=args.label_file,
     )
     validator:LPD_OCR_ACC_Evaluator = None
     val_loader:DataLoader = None
@@ -162,7 +163,8 @@ def main(args:Namespace):
                 iter_loss = lpdgan.get_current_losses()
                 tensorboard_writer.add_scalars("Losses",iter_loss, total_iters)
                 logger.info(f"iters:{total_iters}:{iter_loss}")
-                
+                if args.not_save:
+                    continue
                 evaluation_and_save(
                     lpdgan=lpdgan, val_loader=val_loader, eva=validator, 
                     save_dir = args.model_save_root if val_loader is not None \
@@ -180,7 +182,8 @@ def main(args:Namespace):
 
             tensorboard_writer.add_scalars("Losses",epoch_loss, epoch)
             logger.info(f"epoch:{epoch}:{epoch_loss}")
-
+            if args.not_save:
+                continue
             evaluation_and_save(
                 lpdgan=lpdgan, val_loader=val_loader,
                 eva=validator, 
@@ -193,9 +196,11 @@ def main(args:Namespace):
             gc.collect()
         
         logger.info(f'End of epoch {epoch} / {args.n_epochs + args.n_epochs_decay}\t Time Taken: {time.time() - epoch_start_time} sec')
-        lpdgan.save_networks(save_dir = args.model_save_root/'latest')
-        lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
-        logger.info(f"Last step optimizers and schedulers are saved at { args.model_save_root/'latest'}")
+        
+        if not args.not_save_last:
+            lpdgan.save_networks(save_dir = args.model_save_root/'latest')
+            lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
+            logger.info(f"Last step optimizers and schedulers are saved at { args.model_save_root/'latest'}")
     
     if validator is not None:
         with open(args.model_save_root/f"val_metrics.json", "w+") as jf:
@@ -210,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--blur_aug", nargs='+', type=str, default='all')
     parser.add_argument("--txt_cached", type=Path, default=None)
     parser.add_argument("--txt_extract", type=str, default='paddleocr')
-
+    parser.add_argument("--preload", action='store_true')
     parser.add_argument("--val_data_root", type=Path, default=None)
     parser.add_argument("--label_file", type=Path, default=None)
     parser.add_argument("--val_batch", type=int, default=40)
@@ -230,11 +235,13 @@ if __name__ == "__main__":
     parser.add_argument('--lr_policy', type=str, default='linear',help='learning rate policy. [linear | step | plateau | cosine]')
 
     # save mode 
+    parser.add_argument('--not_save', action='store_true')
     parser.add_argument('--save_epoch_freq', type=int, default=5)
+    parser.add_argument('--really_save', action='store_false')
     parser.add_argument('--save_iter', action='store_true')
     parser.add_argument('--save_iter_freq', type=int, default=5000)
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
-    
+    parser.add_argument("--not_save_last", action='store_true')
     # load pretrained model
     parser.add_argument('--pretrained_weights', type=Path, default=None)
     parser.add_argument('--checkpoint_dir', type=Path, default=None, help='Using the optimizers and schedulers saved from previous work to keep training')
