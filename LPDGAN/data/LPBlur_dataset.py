@@ -123,7 +123,7 @@ class LP_Deblur_Dataset(Dataset):
             assert t[1].is_file(), print(t[1])
             if t[0] is not None:
                 assert t[0].is_file()
-                assert int(t[1].stem) == int(t[0].stem) 
+                assert t[1].stem == t[0].stem 
         
         self.N_pairs = len(self.sharp_blur_pairs)
         self.sp = Spatial_Pyramid_cv2(org_size=self.org_size)

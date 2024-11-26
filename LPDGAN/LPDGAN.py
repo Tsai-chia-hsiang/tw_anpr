@@ -75,12 +75,17 @@ class LPDGAN_Trainer(nn.Module):
             input_channel:int=3, output_channel:int=3, ndf:int = 64,
             lambda_L1:float=100.0, plate_loss:Literal['probl1', 'kl']='probl1',
             ocr_percepual:bool=True,
-            logger:Optional[Logger]=None, gpu_id:int=0,
+            logger:Optional[Logger]=None, 
+            gpu_id:str='0',
             on_size:tuple[int,int]=(224, 112),
             txt_recons_dim:tuple[int, int]=(55, 97)
         ) -> None:
         super().__init__()
-        self.device = torch.device(f'cuda:{gpu_id}') if check_gpu_id(gpu_id=gpu_id) else torch.device('cpu')
+        self.device_id = gpu_id
+        if gpu_id == 'cuda':
+            self.device = torch.device('cuda')
+        else:
+            self.device = torch.device(f'cuda:{gpu_id}') if check_gpu_id(gpu_id=int(gpu_id)) else torch.device('cpu')
 
         self.gan_mode = gan_mode
         self.input_channel = input_channel
@@ -136,7 +141,7 @@ class LPDGAN_Trainer(nn.Module):
         self.model_names = ['G','MBO','D', 'D_smallblock', 'D1', 'D2']
         self.load_nets(target=self.model_names, pretrained_dir = pretrained_weights, logger=logger)
         self._net_to_device(target=self.model_names)
-
+    
         self.loss_names = ['G_GAN', 'G_L1', 'PlateNum', 'D_GAN', 'P_loss', 'D_real', 'D_fake', 'D_s']
         self.criterionL1 = torch.nn.L1Loss()
         self.criterionGAN = GANLoss(gan_mode).to(self.device)
@@ -163,6 +168,8 @@ class LPDGAN_Trainer(nn.Module):
                 continue
 
             net.to(device=self.device)
+            if self.device_id == 'cuda':
+                setattr(self, 'net' + net_name, nn.DataParallel(net))
     
     def set_requires_grad(self, nets:list[nn.Module]|nn.Module, requires_grad=False):
         if not isinstance(nets, list):
