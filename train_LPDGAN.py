@@ -161,7 +161,7 @@ def main(args:Namespace):
             if iter_val_flag:
                 # iteration validation policy 
                 iter_loss = lpdgan.get_current_losses()
-                tensorboard_writer.add_scalars("Losses",iter_loss, total_iters)
+                tensorboard_writer.add_scalars("Loss",iter_loss, total_iters)
                 logger.info(f"iters:{total_iters}:{iter_loss}")
                 if args.not_save:
                     continue
@@ -180,7 +180,7 @@ def main(args:Namespace):
             for k in epoch_loss:
                 epoch_loss[k] /= len(dataset)
 
-            tensorboard_writer.add_scalars("Losses",epoch_loss, epoch)
+            tensorboard_writer.add_scalars("Loss",epoch_loss, epoch)
             logger.info(f"epoch:{epoch}:{epoch_loss}")
             if args.not_save:
                 continue
@@ -241,7 +241,6 @@ if __name__ == "__main__":
     # save mode 
     parser.add_argument('--not_save', action='store_true')
     parser.add_argument('--save_epoch_freq', type=int, default=5)
-    parser.add_argument('--really_save', action='store_false')
     parser.add_argument('--save_iter', action='store_true')
     parser.add_argument('--save_iter_freq', type=int, default=5000)
     parser.add_argument("--model_save_root", type=Path, default=LPDGAN_DEFALUT_CKPT_DIR)
