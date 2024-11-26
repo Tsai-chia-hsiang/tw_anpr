@@ -68,7 +68,10 @@ class LicensePlate_OCR():
         )[0]
 
         if result is None:
-            return ('', '', [-1.0], np.empty((40, 97))) 
+            if paddle_logit :
+                return ('', '', [-1.0], np.empty((40, 97))) 
+            else:
+                return  ('', '', [-1.0])
         
         raw_txt, conf, prob, logit = result[np.argmax(np.array([self._count_area(r) for r in result]))][1]
         raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara)).upper()
