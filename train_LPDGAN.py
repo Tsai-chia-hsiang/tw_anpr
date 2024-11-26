@@ -61,6 +61,10 @@ def main(args:Namespace):
         dataset=dataset, batch_size=args.batch_size, 
         shuffle=True, num_workers=int(args.num_threads),
     )
+    warm_up_loader = DataLoader(
+        dataset=dataset, batch_size=args.warm_up_batch_size, 
+        shuffle=True, num_workers=int(args.num_threads)
+    )
     val_dataset = LP_Deblur_OCR_Valiation_Dataset.build_dataset(
         dataroot=args.val_data_root,
         label_file=args.label_file,
@@ -99,7 +103,9 @@ def main(args:Namespace):
         epoch_val_flag = (epoch > args.D_warm_up) and (epoch - args.D_warm_up) % args.save_epoch_freq == 0
         epoch_iters = 0
         old_lr, lr = args.lr, args.lr 
-        for data in trainloader:
+        target_loader = trainloader if epoch > args.D_warm_up else warm_up_loader
+        old_lr, lr = lpdgan.update_learning_rate()
+        for data in target_loader:
             n = len(data['A_paths'])
             epoch_iters += n
             
@@ -114,7 +120,7 @@ def main(args:Namespace):
                     for k in iter_loss:
                         epoch_loss[k] += iter_loss[k]*n
 
-        old_lr, lr = lpdgan.update_learning_rate()
+        
 
         if epoch_val_flag:
             
@@ -176,7 +182,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_epochs_decay", type=int, default=200, help='number of epochs to linearly decay learning rate to zero')
     parser.add_argument("--lr_decay_iters", type=int, default=50, help='multiply by a gamma every lr_decay_iters iterations')
     parser.add_argument('--lr_policy', type=str, default='linear',help='learning rate policy. [linear | step | plateau | cosine]')
-    
+    parser.add_argument('--warm_up_batch_size', type=int, default=50)
     # save mode 
     parser.add_argument('--not_save', action='store_true')
     parser.add_argument('--save_epoch_freq', type=int, default=5)
