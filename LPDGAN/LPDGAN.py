@@ -16,7 +16,7 @@ from .models.networks import NLayerDiscriminator, \
 from .data import tensor2img, Spatial_Pyramid_cv2
 from .models.taming.modules.losses.lpips import OCR_CRAFT_LPIPS
 from .logger import print_infomation
-import gc
+
 _LPDGAN_DIR_ = Path(os.path.abspath(__file__)).parent
 LPDGAN_DEFALUT_CKPT_DIR = _LPDGAN_DIR_/"checkpoints"
 import sys
@@ -70,15 +70,16 @@ class LPDGAN_Trainer(nn.Module):
             self, epochs_policy:dict[str, str], 
             gan_mode:Literal['wgangp', 'vanilla']='wgangp',
             pretrained_weights:Optional[Path] = None ,
-            checkpoint_dir:Optional[Path]=None,
             lr:float=0.0002,  lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
+            D_warm_up:int=2,
             input_channel:int=3, output_channel:int=3, ndf:int = 64,
             lambda_L1:float=100.0, plate_loss:Literal['probl1', 'kl']='probl1',
             ocr_percepual:bool=True,
             logger:Optional[Logger]=None, 
             gpu_id:str='0',
             on_size:tuple[int,int]=(224, 112),
-            txt_recons_dim:tuple[int, int]=(55, 97)
+            txt_recons_dim:tuple[int, int]=(55, 97),
+            load_G:bool=True, load_D:bool=False
         ) -> None:
         super().__init__()
         self.device_id = gpu_id
@@ -86,7 +87,7 @@ class LPDGAN_Trainer(nn.Module):
             self.device = torch.device('cuda')
         else:
             self.device = torch.device(f'cuda:{gpu_id}') if check_gpu_id(gpu_id=int(gpu_id)) else torch.device('cpu')
-
+        self.D_warm_up = D_warm_up
         self.gan_mode = gan_mode
         self.input_channel = input_channel
         self.output_channel = output_channel
@@ -96,7 +97,7 @@ class LPDGAN_Trainer(nn.Module):
         self.lambda_L1 = lambda_L1
         self.plate_loss_w = 0.001 if plate_loss == "kl" else 0.01
         self.plate_loss = TXT_REC_LOSSES[plate_loss]
-
+        self.stage = "D_warm_up"
         #swin transformer
         self.netG = SwinTrans_G(on_size=on_size)
         
@@ -139,7 +140,17 @@ class LPDGAN_Trainer(nn.Module):
         )
         
         self.model_names = ['G','MBO','D', 'D_smallblock', 'D1', 'D2']
-        self.load_nets(target=self.model_names, pretrained_dir = pretrained_weights, logger=logger)
+        if load_G:
+            self.load_nets(
+                target=self.model_names[:2], 
+                pretrained_dir = pretrained_weights, logger=logger
+            )
+        if load_D:
+            self.load_nets(
+                target=self.model_names[2:],
+                pretrained_dir= pretrained_weights, logger=logger
+            )
+        
         self._net_to_device(target=self.model_names)
     
         self.loss_names = ['G_GAN', 'G_L1', 'PlateNum', 'D_GAN', 'P_loss', 'D_real', 'D_fake', 'D_s']
@@ -150,18 +161,25 @@ class LPDGAN_Trainer(nn.Module):
         self.OCR_perceptualLoss = OCR_CRAFT_LPIPS().to(self.device).eval() if ocr_percepual else None
         
 
-        self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=lr, betas=(0.5, 0.999))        
-        self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=lr, betas=(0.5, 0.999))
-        self.optimizer_D_smallblock = torch.optim.Adam(self.netD_smallblock.parameters(), lr=lr, betas=(0.5, 0.999))
+        self.optimizer_G = torch.optim.Adam(
+            list(self.netG.parameters())+list(self.netMBO.parameters()), 
+            lr=lr, betas=(0.5, 0.999)
+        )
 
-        self.optimizers = [self.optimizer_G, self.optimizer_D, self.optimizer_D_smallblock]    
-        self.schedulers = [get_scheduler(optimizer, lr_policy=self.lr_policy, **epochs_policy) for optimizer in self.optimizers]
-        self.load_opts_and_schedulers(checkpoint=checkpoint_dir, logger=logger)
-        gc.collect()
-        
+        self.optimizer_D = torch.optim.Adam(
+            list(self.netD.parameters())+list(self.netD1.parameters()) +
+            list(self.netD2.parameters())+list(self.netD_smallblock.parameters()), 
+            lr=lr, betas=(0.5, 0.999)
+        )
+        self.optimizers = [self.optimizer_G,self.optimizer_D]
+        self.schedulers = [
+            get_scheduler(opt, lr_policy=self.lr_policy, **epochs_policy)
+            for opt in self.optimizers
+        ]
+    
     def _net_to_device(self, target:list[str]):
-        for net_name in target:
-            
+        
+        for net_name in target:    
             net:nn.Module = getattr(self, 'net' + net_name, None)
             if net is None:
                 print(f"No {net_name} such a net, please check")
@@ -230,7 +248,7 @@ class LPDGAN_Trainer(nn.Module):
 
         return loss_G_s_fake / 7.0
 
-    def backward_D(self):
+    def backward_D(self, warm_up:bool=False):
         fake_AB = torch.cat((self.real_A, self.fake_B),
                             1)
         pred_fake = self.netD(fake_AB.detach())
@@ -271,7 +289,7 @@ class LPDGAN_Trainer(nn.Module):
                           self.cal_gp(fake_AB2, real_AB2)) * 10 / 3
 
         self.loss_D = self.loss_D_GAN + self.loss_D_gp + self.loss_D_s
-        self.loss_D.backward(retain_graph=True)
+        self.loss_D.backward(retain_graph=not warm_up)
 
     def backward_G(self):
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)
@@ -319,14 +337,26 @@ class LPDGAN_Trainer(nn.Module):
         self.loss_G.backward()
 
     #enter point : optimize the paras
-    def optimize_parameters(self, input_x:dict[str, torch.Tensor|tuple[str]]):
+    def optimize_parameters(self, input_x:dict[str, torch.Tensor|tuple[str]], step:int):
+        
         self.forward(input_x=input_x)
-        self.set_requires_grad(self.netD, True)
-        self.optimizer_D.zero_grad()
-        self.backward_D()
-        self.optimizer_D.step()
+        warm_up = step < self.D_warm_up
+        if warm_up:
+            self.set_requires_grad([self.netG, self.netMBO], warm_up)
+        elif step == self.D_warm_up and self.stage != "e2e":
+            # The next step out of warm up, open the gradient of Generator
+            self.stage="e2e"
+            self.set_requires_grad([self.netG, self.netMBO], True)
 
-        self.set_requires_grad(self.netD, False)
+        self.set_requires_grad([self.netD, self.netD1, self.netD2, self.netD_smallblock], True)
+       
+        self.optimizer_D.zero_grad()
+        self.backward_D(warm_up=warm_up)
+        self.optimizer_D.step()
+        if warm_up:
+            return
+
+        self.set_requires_grad([self.netD, self.netD1, self.netD2, self.netD_smallblock], False)
         self.optimizer_G.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
@@ -349,7 +379,7 @@ class LPDGAN_Trainer(nn.Module):
     def get_image_paths(self):
         return self.image_paths
 
-    def update_learning_rate(self, logger:Optional[Logger]=None):
+    def update_learning_rate(self) -> tuple[float, float]:
         old_lr = self.optimizers[0].param_groups[0]['lr']
         for scheduler in self.schedulers:
             if self.lr_policy == 'plateau':
@@ -358,13 +388,15 @@ class LPDGAN_Trainer(nn.Module):
                 scheduler.step()
 
         lr = self.optimizers[0].param_groups[0]['lr']
-        print_infomation(f'learning rate {old_lr:.7f} -> {lr:.7f}', logger=logger)
-        
+        #print_infomation(f'learning rate {old_lr:.7f} -> {lr:.7f}', logger=logger)
+        return old_lr, lr
+
     def get_current_losses(self) -> dict[str, float]:
         errors_ret = {}
         for name in self.loss_names:
             if isinstance(name, str):
-                errors_ret[name] = float(getattr(self, 'loss_' + name))
+                if hasattr(self, 'loss_' + name):
+                    errors_ret[name] = float(getattr(self, 'loss_' + name))
         return errors_ret
     
     ## net load & save
@@ -399,40 +431,7 @@ class LPDGAN_Trainer(nn.Module):
         
             load_networks(net=net, pretrained_ckpt=pretrained_dir/f'net_{name}.pth', logger=logger)
     
-    ## optimizers & schedulers load & save
-    def save_optimizers(self, save_dir:Path):
-        """
-        save optimizers and schedulers
-        """
-        save_dir.mkdir(parents=True, exist_ok=True)
-        for opt_name, opt, sched in zip(["G", "D", "D_small"], self.optimizers, self.schedulers):
-            torch.save(
-                opt.state_dict(),
-                save_dir/f"{opt_name}_opt.pth"
-            )
-            torch.save(
-                sched.state_dict(),
-                save_dir/f"{opt_name}_sche.pth"
-            )
-        
-    def load_opts_and_schedulers(self, checkpoint:Optional[Path]=None, logger:Optional[Logger]=None):
-        
-        if checkpoint is None:
-            print_infomation("using init status", logger=logger)
-            return 
-        
-        if not checkpoint.is_dir():
-            print_infomation(f"No such {checkpoint}, using init status")
-            return 
-        
-        for opt_name, opt, sched in zip(["G", "D", "D_small"], self.optimizers, self.schedulers): 
-            print_infomation(
-                f"{opt_name}: {checkpoint/f'{opt_name}_opt.pth'} & {checkpoint/f'{opt_name}_sche.pth'}", 
-                logger=logger
-            )
-            load_networks(opt, checkpoint/f"{opt_name}_opt.pth", logger=logger)
-            load_networks(sched, checkpoint/f"{opt_name}_sche.pth", logger=logger)
-
+from torch.utils.tensorboard import SummaryWriter
 
 class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
     
@@ -451,6 +450,7 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
             'cer':[],
             'lcs':[]
         }
+    
     @property
     def current_best(self):
         return copy.deepcopy(self._current_best)
@@ -466,8 +466,8 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
                 pred.append(prediction[0])  
             gth += list(data['gth']) 
             
-        acc_cer = self(pred, gth, 'cer', to_acc=True)
-        acc_lcs = self(pred, gth, 'lcs')
+        acc_cer = super().__call__(pred, gth, 'cer', to_acc=True)
+        acc_lcs = super().__call__(pred, gth, 'lcs')
         return {'cer':acc_cer, 'lcs':acc_lcs}
 
     def update(self, accs:dict[str, float])->dict[str, str]:
@@ -482,3 +482,31 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
                 ret[k] = LPD_OCR_ACC_Evaluator.keep_signal
         
         return ret
+
+    def __call__(
+        self, lpdgan:LPDGAN_Trainer, val_loader:DataLoader,
+        save_dir:Path, logger:Logger,iters:int, baseline:dict[str, float], 
+        board:Optional[SummaryWriter]=None,
+        keep_training:bool=True
+    ) -> float:
+        # Having a validaiton dataset.
+        # Will first validate the model and decide wether to save 
+        
+        print_infomation(f"validation at {iters}", logger=logger)
+        
+        lpdgan.netG.eval()
+        last_best = self.current_best
+        acc = self.val_LP_db_dataset(val_loader=val_loader, swintrans_g=lpdgan.netG)
+        update_status = self.update(accs=acc)
+        
+        for k in acc:
+            print_infomation(f"{k}: baseline: {baseline[k]} | acc : {acc[k]} | last best: {last_best[k]} | {update_status[k]}", logger=logger)
+            if board is not None:
+                board.add_scalars(k, {"train":acc[k], "baseline":baseline[k]}, iters)
+            if update_status[k] == LPD_OCR_ACC_Evaluator.update_signal:
+                lpdgan.save_networks(save_dir=save_dir/f"{k}")
+        
+        if keep_training:
+            lpdgan.netG.train()
+        
+        return acc
