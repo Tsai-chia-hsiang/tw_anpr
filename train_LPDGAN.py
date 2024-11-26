@@ -202,6 +202,10 @@ def main(args:Namespace):
             lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
             logger.info(f"Last step optimizers and schedulers are saved at { args.model_save_root/'latest'}")
     
+    lpdgan.save_networks(save_dir = args.model_save_root/'latest')
+    lpdgan.save_optimizers(save_dir = args.model_save_root/'latest')
+    logger.info(f"Last step optimizers and schedulers are saved at { args.model_save_root/'latest'}")
+
     if validator is not None:
         with open(args.model_save_root/f"val_metrics.json", "w+") as jf:
             json.dump(validator.hist, jf, indent=4, ensure_ascii=False)
