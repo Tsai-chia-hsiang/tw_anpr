@@ -34,7 +34,7 @@ def kl_divergen(pred:torch.Tensor, gth_prob:torch.Tensor) -> torch.Tensor:
     return kl_loss
 
 def logit_l1(pred:torch.Tensor, gth_prob:torch.Tensor) -> torch.Tensor:
-    return F.l1_loss(numerical_stability(pred), gth_prob)
+    return F.l1_loss(F.softmax(numerical_stability(pred), dim=-1), gth_prob)
 
 TXT_REC_LOSSES = {
     'probl1':logit_l1,
