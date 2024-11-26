@@ -205,7 +205,6 @@ if __name__ == "__main__":
     parser.add_argument("--ocr_perceptual", action='store_false')
     parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
     parser.add_argument('--txt_loss', type=str, default='probl1')
-    parser.add_argument('--print_freq', type=int, default=10400)
 
     args = parser.parse_args()
     if args.blur_aug == "all":

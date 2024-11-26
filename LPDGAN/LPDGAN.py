@@ -167,8 +167,7 @@ class LPDGAN_Trainer(nn.Module):
         )
 
         self.optimizer_D = torch.optim.Adam(
-            list(self.netD.parameters())+list(self.netD1.parameters()) +
-            list(self.netD2.parameters())+list(self.netD_smallblock.parameters()), 
+            list(self.netD.parameters())+list(self.netD_smallblock.parameters()), 
             lr=lr, betas=(0.5, 0.999)
         )
         self.optimizers = [self.optimizer_G,self.optimizer_D]
@@ -459,7 +458,10 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
         pred = []
         gth = []
         for data in tqdm(val_loader):
-            imgs = swintrans_g.batch_inference(x=data)
+            if isinstance(swintrans_g, nn.DataParallel):
+                imgs = swintrans_g.module.batch_inference(x=data)
+            else:
+                imgs = swintrans_g.batch_inference(x=data)
             for img in imgs:
                 img = self.preprocess(img)
                 prediction = self.ocr(img)
