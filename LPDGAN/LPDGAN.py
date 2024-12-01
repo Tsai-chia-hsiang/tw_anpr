@@ -167,7 +167,7 @@ class LPDGAN_Trainer(nn.Module):
         )
 
         self.optimizer_D = torch.optim.Adam(
-            list(self.netD.parameters())+list(self.netD_smallblock.parameters()), 
+            list(self.netD.parameters()),
             lr=lr, betas=(0.5, 0.999)
         )
         self.optimizers = [self.optimizer_G,self.optimizer_D]
