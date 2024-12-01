@@ -6,6 +6,8 @@ LPDGAN/checkpoints
 !LPDGAN/models/taming/modules/autoencoder/ocr_perceptual/readme.md
 LPDGAN/models/taming/modules/autoencoder/ocr_perceptual
 !dataset/readme.md
+!dataset/dataset.py
+!dataset/__init__.py
 !dataset/tw/old/readme.md
 !dataset/tw/new/readme.md
 !dataset/augmentation.py
