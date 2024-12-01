@@ -25,9 +25,8 @@ CUDA_VISIBLE_DEVICES=0,1,3,4 python train_LPDGAN.py \
     --val_data_root $VAL_DATA_ROOT  --label_file $LABEL_FILE\
     --gpu_id $GPUID --batch_size $TRAIN_BATCH --val_batch $VAL_BATCH\
     --n_epochs $N_EPOCHS --n_epochs_decay $N_EPOCHS_DECAY \
+    --pretrained_weights $PRETRAINED --load_G \
     --lr $LR --model_save_root $SAVE\
     --save_epoch_freq $SAVE_EPOCH\
     --seed $SEED --preload \
-    --D_warm_up $WARM_UP --warm_up_batch_size $WBATCH \
-    --pretrained_weights $PRETRAINED --load_G \\
-    
+    --D_warm_up $WARM_UP --warm_up_batch_size $WBATCH 
