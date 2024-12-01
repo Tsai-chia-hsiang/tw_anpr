@@ -1,4 +1,5 @@
 from anpr import LicensePlate_OCR, OCR_Evaluator
+from functools import partial
 import Levenshtein as lev
 from typing import Optional
 from LPDGAN.LPDGAN import SwinTrans_G
@@ -13,6 +14,7 @@ from tqdm import tqdm
 import argparse
 from argparse import Namespace
 from imgproc_utils.vis import make_comparasion, make_canvas, make_text_card
+from LPDGAN.LPDGAN import SwinTrans_G
 
 def make_topk_vis_canvas(idxs, imgs:list, labels:list[str], pred:list[str], lp:LicensePlate_OCR, k=5, deblur_swintransformer:Optional[SwinTrans_G]=None) -> np.ndarray:
     c = [None]*k
@@ -41,6 +43,22 @@ def make_topk_vis_canvas(idxs, imgs:list, labels:list[str], pred:list[str], lp:L
         ])
     return make_canvas(c)
         
+def load_g(ckpt:Path, dev:torch.device=torch.device("cpu"))->SwinTrans_G:
+
+    if ckpt is None:
+        return None
+    if not ckpt.is_file():
+        return None
+    print(f"load from {ckpt}")
+    db = SwinTrans_G()
+    db_k = db.state_dict()
+    sd = torch.load(ckpt, map_location='cpu')
+    sd_exist = {k:v for k,v in sd.items() if k in db_k}
+    db.load_state_dict(sd_exist)
+    db.to(dev)
+    db.eval()
+    return db
+
 
 def read_json(file:str):
     with open(file, 'r') as fp:
@@ -50,41 +68,32 @@ def main(args:Namespace):
     
     title = "defalut"
     img_label:dict[str, str] = read_json(args.label_file)
-    
+    db = load_g(ckpt=args.ckpt, dev=torch.device(f"cuda:{args.gpu}" if args.gpu >= 0 else "cpu"))
+    if isinstance(db, SwinTrans_G):
+        title = args.ckpt
+    print(title)
     imgs = list(map(lambda x:args.data_root/x, list(img_label.keys())))
     labels = list(img_label.values())
     lp_ocr = LicensePlate_OCR()
     ocr_eva = OCR_Evaluator()
-    
-    deblur_swintransformer = None
-    if args.deblur_weight_dir is not None:
-        if args.deblur_weight_dir == "no":
-            print(f"default OCR validating")
-        else:    
-            pretrained_weight = Path(args.deblur_weight_dir)/"net_G.pth"
-            if pretrained_weight.is_file():
-                title = str(args.deblur_weight_dir)
-                deblur_swintransformer = SwinTrans_G( mode='inference', on_size=(224, 112))
-                load_networks(deblur_swintransformer, pretrained_weight)
-                deblur_swintransformer.to(device=torch.device(f"cuda:{args.gpu}" if args.gpu >= 0 else "cpu"))
-                print(f"using pretrained swintransformer to deblur")
-            else:
-                print(f"no {pretrained_weight} such a file , default OCR validating")
-            
+
     pred = [None] * len(imgs)
     for i, img_path in enumerate(tqdm(imgs)):
+        
         src_img = cv2.imread(img_path)
-        if deblur_swintransformer is not None:
-            src_img = deblur_swintransformer.inference(x=src_img)
+        if src_img.shape[:2] != (112, 224):
+            src_img = cv2.resize(src_img, (224,112))
+    
+        if db is not None:
+            src_img = db.inference(x=src_img)
         else:
-            if src_img.shape[:2] != (112, 224):
-                src_img = cv2.resize(src_img, (224,112))
             src_img = normalize_brightness(src_img)
         
-        plate_number = lp_ocr(crop=src_img, preprocess_pipeline=L_CLAHE)
-        pred[i] = plate_number[0] if plate_number[0] != 'n' else ''
+        plate_number = lp_ocr(crop=src_img, preprocess_pipeline=L_CLAHE, det=True)
+        pred[i] = plate_number[0]
     
-    acc = ocr_eva(pred=pred, gth=labels, method=args.eva, to_acc=True)
+    acc, dist = ocr_eva(pred=pred, gth=labels, method='lcs', to_acc=True, detail=True)
+    
     print(f"{title},{acc}")
     
     """q = np.argsort(np.asarray(edit_distances))
@@ -108,7 +117,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=Path)
     parser.add_argument("--label_file", type=Path)
     parser.add_argument("--eva", type=str, default='lcs')
-    parser.add_argument("--deblur_weight_dir", type=str, default=None)
+    parser.add_argument("--ckpt", type=Path, default=None)
     parser.add_argument("--gpu", type=int, default=0)
     args = parser.parse_args()
     main(args = args)
