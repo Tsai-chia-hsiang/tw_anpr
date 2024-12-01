@@ -102,9 +102,11 @@ def main(args:Namespace):
     for epoch in pbar:
         epoch_val_flag = (epoch > args.D_warm_up) and (epoch - args.D_warm_up) % args.save_epoch_freq == 0
         epoch_iters = 0
-        old_lr, lr = args.lr, args.lr 
+         
         target_loader = trainloader if epoch > args.D_warm_up else warm_up_loader
+        
         old_lr, lr = lpdgan.update_learning_rate()
+        
         for data in target_loader:
             n = len(data['A_paths'])
             epoch_iters += n
@@ -119,8 +121,6 @@ def main(args:Namespace):
                 else:
                     for k in iter_loss:
                         epoch_loss[k] += iter_loss[k]*n
-
-        
 
         if epoch_val_flag:
             
