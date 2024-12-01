@@ -130,7 +130,6 @@ def main(args:Namespace):
             tensorboard_writer.add_scalars("Loss",epoch_loss, epoch)
             epoch_loss=None
             gc.collect()
-            print_infomation(f"epoch:{epoch}:{epoch_loss}", logger=logger)
             
             if args.not_save:
                 continue
