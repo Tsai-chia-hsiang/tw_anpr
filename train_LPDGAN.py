@@ -16,22 +16,9 @@ import json
 from torch.utils.data import DataLoader
 from pathlib import Path
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_ACC_Evaluator
-from LPDGAN.logger import get_logger, print_infomation
+from logger import get_logger, print_infomation
 from imgproc_utils import L_CLAHE
-
-def reproducible(seed:int = 891122):
-    # Set random seeds for reproducibility
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
-    # Ensure reproducibility with CUDA
-    torch.cuda.manual_seed_all(seed)
-
-    # Configure deterministic behavior
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
+from torchtool import reproducible 
 
 
 def main(args:Namespace):
@@ -102,9 +89,11 @@ def main(args:Namespace):
     for epoch in pbar:
         epoch_val_flag = (epoch > args.D_warm_up) and (epoch - args.D_warm_up) % args.save_epoch_freq == 0
         epoch_iters = 0
-        old_lr, lr = args.lr, args.lr 
+         
         target_loader = trainloader if epoch > args.D_warm_up else warm_up_loader
+        
         old_lr, lr = lpdgan.update_learning_rate()
+        
         for data in target_loader:
             n = len(data['A_paths'])
             epoch_iters += n
@@ -120,8 +109,6 @@ def main(args:Namespace):
                     for k in iter_loss:
                         epoch_loss[k] += iter_loss[k]*n
 
-        
-
         if epoch_val_flag:
             
             for k in epoch_loss:
@@ -130,7 +117,6 @@ def main(args:Namespace):
             tensorboard_writer.add_scalars("Loss",epoch_loss, epoch)
             epoch_loss=None
             gc.collect()
-            print_infomation(f"epoch:{epoch}:{epoch_loss}", logger=logger)
             
             if args.not_save:
                 continue

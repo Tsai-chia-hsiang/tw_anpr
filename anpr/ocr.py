@@ -60,11 +60,11 @@ class LicensePlate_OCR():
             return 0
         return (d[0][1][0] - d[0][0][0])*(d[0][2][1] - d[0][0][1])
 
-    def __call__(self, crop:np.ndarray, post_correction:bool=True, preprocess_pipeline=None, paddle_logit=False) -> tuple[str, str, list[float]]:
+    def __call__(self, crop:np.ndarray, post_correction:bool=True, preprocess_pipeline=None, det:bool=False, paddle_logit:bool=False) -> tuple[str, str, list[float]]:
         
         result = self.paddle_ocr_model.ocr(
             preprocess_pipeline(crop) if preprocess_pipeline is not None else crop, 
-            cls=False
+            cls=False, det=det
         )[0]
 
         if result is None:
@@ -73,10 +73,14 @@ class LicensePlate_OCR():
             else:
                 return  ('', '', [-1.0])
         
-        raw_txt, conf, prob, logit = result[np.argmax(np.array([self._count_area(r) for r in result]))][1]
+        if not det:
+           raw_txt, conf, prob, logit = result[0]
+        else:
+            raw_txt, conf, prob, logit = result[np.argmax(np.array([self._count_area(r) for r in result]))][1]
+        
         raw_txt = raw_txt.translate(str.maketrans('', '', self._noise_chara)).upper()
         txt = self.pattern_correction(plate_number=raw_txt) \
-            if ( post_correction and len(raw_txt) > 5) else raw_txt
+            if ( post_correction and len(raw_txt) > 6) else raw_txt
         if paddle_logit :
             return txt, raw_txt, prob, logit
         return txt, raw_txt, prob

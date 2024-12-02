@@ -1,5 +1,6 @@
 import os
 from typing import Any
+import math
 from pathlib import Path
 import torch
 import numpy as np
@@ -35,7 +36,7 @@ class LicensePlate_Detector():
         self.model = YOLO(self.model_path).to(device=torch.device(f"cuda:{gpu_id}"))
 
     @torch.no_grad()
-    def __call__(self, imgs:np.ndarray|list[np.ndarray], conf:float=0.3) -> list[np.ndarray]:
+    def __call__(self, imgs:np.ndarray|list[np.ndarray], conf:float=0.3, box_dtype:type=np.int32) -> list[np.ndarray]:
         
         """
         Args:
@@ -57,7 +58,7 @@ class LicensePlate_Detector():
         plates_boxes = []
         for r in results:
             plates_boxes.append(
-                np.asarray([b.xyxy.astype(np.int32).squeeze() for b in r.cpu().numpy().boxes])
+                np.asarray([b.xyxy.astype(box_dtype).squeeze() for b in r.cpu().numpy().boxes])
             )
         
         return plates_boxes

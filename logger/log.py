@@ -2,24 +2,27 @@ import os
 from pathlib import Path
 import logging
 
-class InfoFilter(logging.Filter):
-    def filter(self, record):
-        # Only log messages that do not have the 'file_only' attribute set to True
-        return not getattr(record, 'file_only', False)
-
 def get_logger(name: str, file: os.PathLike) -> logging.Logger:
+    # Get or create the logger
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)  # Set the overall log level to the lowest level you need
 
-    # Check if the logger already has handlers to avoid adding them multiple times
+    # Avoid adding duplicate handlers
     if not logger.handlers:
-        # Create a file handler
+        # File Handler for INFO and higher (excluding DEBUG)
         file_handler = logging.FileHandler(file, mode='w')
-        file_handler.setLevel(logging.INFO)
+        file_handler.setLevel(logging.INFO)  # Handles INFO and higher
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-        # Add only the file handler to the logger
         logger.addHandler(file_handler)
+
+        # Stream Handler for DEBUG and ERROR levels
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.DEBUG)  # Handles DEBUG and ERROR levels
+        stream_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+        logger.addHandler(stream_handler)
+
+    # Prevent logs from propagating to the root logger
+    logger.propagate = False
 
     return logger
 
