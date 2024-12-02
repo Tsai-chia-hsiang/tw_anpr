@@ -15,12 +15,13 @@ from .models.networks import NLayerDiscriminator, \
     get_scheduler
 from .data import tensor2img, Spatial_Pyramid_cv2
 from .models.taming.modules.losses.lpips import OCR_CRAFT_LPIPS
-from .logger import print_infomation
+from . import _LPDGAN_DIR_
 
-_LPDGAN_DIR_ = Path(os.path.abspath(__file__)).parent
-LPDGAN_DEFALUT_CKPT_DIR = _LPDGAN_DIR_/"checkpoints"
 import sys
-sys.path.append(str(_LPDGAN_DIR_.parent/f"anpr"))
+sys.path.append(os.path.abspath(_LPDGAN_DIR_.parent))
+from logger import print_infomation
+
+sys.path.append(os.path.abspath(_LPDGAN_DIR_.parent/f"anpr"))
 from anpr import LicensePlate_OCR, OCR_Evaluator
 
 check_gpu_id = lambda gpu_id: gpu_id > -1 and torch.cuda.is_available() and gpu_id < torch.cuda.device_count()

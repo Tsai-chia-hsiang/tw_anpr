@@ -7,7 +7,9 @@ from torchvision.models.vgg import VGG19_Weights
 from torch import nn as nn
 from torchvision.models import vgg as vgg
 from pathlib import Path
-from .import SR_PRETRAINED_DIR
+from .network import RRDBNet, UNetDiscriminatorSN
+from .import SR_PRETRAINED_DIR, SR_FILE_DIR
+
 
 VGG_PRETRAIN_PATH = str(SR_PRETRAINED_DIR/f"vgg19-dcbb9e9d.pth")
 NAMES = {
@@ -378,7 +380,12 @@ class GANLoss(torch.nn.Module):
 class ESRGANModel():
     """ESRGAN model for single image super-resolution."""
 
-    def __init__(self, net_g:torch.nn.Module, net_d:torch.nn.Module, dev:torch.device):
+    def __init__(
+            self, net_g:RRDBNet, net_d:UNetDiscriminatorSN, dev:torch.device,
+            lr:float=1e-4, MultiStepLR_mileston:list[int]=[100], gamma:float=0.5,
+            start_epoch:int=0,
+            g_loss_w:float=1e-1, p_loss_w:float=1.0
+        ):
         super(ESRGANModel, self).__init__()
         
         self.dev = dev
@@ -389,15 +396,29 @@ class ESRGANModel():
                 'conv3_4': 1,
                 'conv4_4': 1,
                 'conv5_4': 1
-            }
+            },
+            perceptual_weight=p_loss_w
         )
-        self.cri_gan = GANLoss(loss_weight=1e-1)
+        self.current_lr = lr
+        self.cri_gan = GANLoss(loss_weight=g_loss_w)
         self.net_g = net_g
         self.net_g.to(self.dev)
         self.net_d = net_d
         self.net_d.to(self.dev)
-        self.optimizer_g = torch.optim.Adam(net_g.parameters(), lr=1e-4)
-        self.optimizer_d = torch.optim.Adam(net_d.parameters(), lr=1e-4)
+        self.optimizer_g = torch.optim.Adam(net_g.parameters(), lr=lr)
+        self.optimizer_d = torch.optim.Adam(net_d.parameters(), lr=lr)
+        self.scheduler_g = torch.optim.lr_scheduler.MultiStepLR(
+            self.optimizer_g,
+            gamma=gamma,
+            milestones=MultiStepLR_mileston,  # Example milestones
+            last_epoch=start_epoch - 1
+        )
+        self.scheduler_d = torch.optim.lr_scheduler.MultiStepLR(
+            self.optimizer_d,
+            milestones=MultiStepLR_mileston,  # Example milestones
+            gamma=gamma,
+            last_epoch=start_epoch - 1
+        )
         self.cri_perceptual.to(self.dev)
         self.cri_gan.to(self.dev)
 
@@ -485,7 +506,13 @@ class ESRGANModel():
         loss_dict['out_d_fake'] = torch.mean(fake_d_pred.detach()).item()
 
         return loss_dict
-
+    
+    def update_lr(self) -> float:
+        self.scheduler_g.step()
+        self.scheduler_d.step()
+        self.current_lr = self.optimizer_g.param_groups[0]['lr']
+        
+    
 if __name__ == "__main__":
     pl = PerceptualLoss(
             layer_weights={

@@ -13,34 +13,12 @@ import numpy as np
 import torch
 from tqdm import tqdm, trange
 from torch.utils.tensorboard import SummaryWriter
+from anpr import  OCR_Evaluator
+from logger import remove_old_tf_evenfile, print_infomation, get_logger
+from torchtool import reproducible
+from argparse import ArgumentParser
 
-def remove_old_tf_evenfile(directory:Path):
-    if not directory.is_dir():
-        return 
-    
-    old_board_file = list(
-        filter(
-            lambda x:'events.out.tfevents.' in x.name,
-            [_ for _ in directory.iterdir() if _.is_file()]
-        )
-    )
-
-    for i in old_board_file:
-        print(f"remove {i}")
-        os.remove(i)
-
-def reproducible(seed:int = 891122):
-    # Set random seeds for reproducibility
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
-    # Ensure reproducibility with CUDA
-    torch.cuda.manual_seed_all(seed)
-
-    # Configure deterministic behavior
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+evar = OCR_Evaluator()
 
 @torch.no_grad()
 def view_sr(model:RRDBNet, view_set:SR_View_Cmp_Dataset, dev:torch.device, save_dir:Path, batch_size:int=40):
@@ -55,7 +33,6 @@ def view_sr(model:RRDBNet, view_set:SR_View_Cmp_Dataset, dev:torch.device, save_
             
             cv2.imwrite(
                 save_dir/img_name,
-                
                 cv2.hconcat(
                     [
                         si, np.zeros((si.shape[0], 10, 3), dtype=np.uint8), 
@@ -74,12 +51,22 @@ def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=Tru
         torch.set_grad_enabled(False)
 
     N = len(loader.dataset)
-    for lr, hr in loader:
+    gt = []
+    pred = []
+    for lr, hr, lr_path, sr_path, lp_num in loader:
         n_sample = len(lr)
         iters += n_sample
         losses = model.optimize_parameters(lq=lr, gt=hr, train=train)
+        
+        with torch.no_grad():
+            model.net_g.eval()
+            sr_imgs = model.net_g.inference(x=lr.to(model.dev))
+            gt += lp_num
+            pred += [SR_Dataset.lp_ocr(sr_img)[1] for sr_img in sr_imgs]
+
+        
         if pbar is not None:
-            pbar.set_postfix(ordered_dict={'progress':f"{iters}/{N}","ploss":losses['l_g_percep']})
+            pbar.set_postfix(ordered_dict={'progress':f"{iters}/{N}","ploss":losses['l_g_percep'], 'lr':model.current_lr})
         
         if eloss is None:
             eloss = {k:0 for k in losses}
@@ -89,16 +76,24 @@ def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=Tru
     
 
     prefix = "train" if train else "val" 
+    acc = evar(pred=pred, gth=gt)
+    eloss =  eloss | {f'{prefix}_ocr_acc': acc}
+
     for k in eloss:
-        eloss[k] /= N
+        if 'ocr_acc' not in k:
+            eloss[k] /= N
         if board is not None:
-            board.add_scalar(f"{prefix}_{k}", eloss[k], epoch)
-    
+            board.add_scalar(k, eloss[k], epoch)
+
     return eloss
 
-def main():
+def main(args):
     
-    reproducible()
+    reproducible(seed=args.seed)
+    project_dir:Path = SR_FINETUNE_DIR/args.save_project
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = get_logger(name=__file__, file=project_dir/f"training.log")
 
     rrdbnet = RRDBNet(
         num_in_ch=3, num_out_ch=3, num_feat=64, 
@@ -118,45 +113,50 @@ def main():
            weights_only=True, map_location='cpu'
         )['params']
     )
-    data_root = Path("dataset/tw/sr")
-    trainer = ESRGANModel(net_d=udis, net_g=rrdbnet, dev=torch.device("cuda:0"))
+
+    trainer = ESRGANModel(
+        net_d=udis, net_g=rrdbnet,
+        dev=torch.device("cuda:0"),
+        lr=args.lr, 
+        MultiStepLR_mileston=args.epoch_stage[:-1],
+        gamma=args.gamma,
+        g_loss_w=args.g_loss_w,
+        p_loss_w=args.p_loss_w
+    )
     
     train_set =  SR_Dataset(
-        lr=data_root/"train"/"lr", 
-        hr=data_root/"train"/"hr", 
-        preload=True
+        lr=args.train_root/"lr", 
+        hr=args.train_root/"hr", 
+        preload=True,
+        label_file=args.train_root/f"labels.json"
     )
-    train_loader = DataLoader(dataset=train_set, batch_size=25, shuffle=True)
+    train_loader = DataLoader(dataset=train_set, batch_size=args.batch, shuffle=True)
     
     val_set = SR_Dataset(
-        lr=data_root/"val"/"lr", 
-        hr=data_root/"val"/"hr", 
+        lr=args.val_root/"lr", 
+        hr=args.val_root/"hr", 
+        label_file=args.val_root/"labels.json",
         preload=True
     )
-    val_loader = DataLoader(dataset=val_set, batch_size=25)
+    val_loader = DataLoader(dataset=val_set, batch_size=args.batch)
 
     view_set = SR_View_Cmp_Dataset(
-        lr=data_root/"val"/"lr", 
-        hr=data_root/"val"/"hr", 
+        lr=args.val_root/"lr", 
+        hr=args.val_root/"hr", 
         preload=True
     )
 
-    remove_old_tf_evenfile(SR_FINETUNE_DIR)
-    tensorboard_writer = SummaryWriter(log_dir=SR_FINETUNE_DIR)
+    remove_old_tf_evenfile(project_dir)
+    tensorboard_writer = SummaryWriter(log_dir=project_dir)
     
     baseline = forward_one_epoch(
         loader=val_loader, model=trainer, 
         pbar=None, train=False
     )
     
-    print(baseline)
-    view_sr(
-        model=rrdbnet, view_set=view_set,
-        dev=torch.device("cuda:0"),
-        save_dir=SR_FINETUNE_DIR/"baseline"
-    )
-    ploss = baseline['l_g_percep']
-    pbar = trange(100)
+    print_infomation(baseline, logger)
+    ocr_acc = baseline['val_ocr_acc']
+    pbar = trange(sum(args.epoch_stage))
     
     for e in pbar:
 
@@ -169,31 +169,52 @@ def main():
             loader=val_loader, model=trainer, pbar=pbar, 
             train=False, board=tensorboard_writer, epoch=e
         )
-   
-        if val_eloss['l_g_percep'] <= ploss:
-            print(f"At {e} val percep loss from {ploss} -> {val_eloss['l_g_percep']}")
-            torch.save(rrdbnet.state_dict(), SR_FINETUNE_DIR/f"g.pth")
-            torch.save(udis.state_dict(), SR_FINETUNE_DIR/f"d.pth")
-            ploss = val_eloss['l_g_percep']
-
+        trainer.update_lr()
+        print_infomation(val_eloss['val_ocr_acc'], logger=logger)
+        if val_eloss['val_ocr_acc'] >= ocr_acc:
+            print_infomation(f"At {e} val ocr from {ocr_acc} -> {val_eloss['val_ocr_acc']}", logger=logger)
+            torch.save(rrdbnet.state_dict(), project_dir/f"g.pth")
+            torch.save(udis.state_dict(), project_dir/f"d.pth")
+            ocr_acc = val_eloss['val_ocr_acc']
 
     del trainer
     gc.collect()
     torch.cuda.empty_cache()
-    
-    rrdbnet = RRDBNet(
-        num_in_ch=3, num_out_ch=3, num_feat=64, 
-        num_block=23, num_grow_ch=32, scale=2
-    )
-    rrdbnet = rrdbnet.load_state_dict(torch.load(SR_FINETUNE_DIR/f"g.pth", weights_only=True, map_location='cpu'))
-    view_sr(
-        model=rrdbnet, 
-        view_set=view_set,
-        dev=torch.device("cuda:0"),
-        save_dir=SR_FINETUNE_DIR/f"val_best_ploss",
-    )
+    if (project_dir/f"g.pth").is_file():
+        print_infomation(f"Have trained a model that exceed the baseline", logger=logger)
+        rrdbnet = RRDBNet(
+            num_in_ch=3, num_out_ch=3, num_feat=64, 
+            num_block=23, num_grow_ch=32, scale=2
+        )
+        rrdbnet.load_state_dict(torch.load(project_dir/f"g.pth", weights_only=True, map_location='cpu'))
+        view_sr(
+            model=rrdbnet, 
+            view_set=view_set,
+            dev=torch.device("cuda:0"),
+            save_dir=project_dir/f"val_best_ocr",
+        )
+    else:
+        print_infomation("Can't exceed baseline, give up", logger=logger)
 
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = ArgumentParser()
+    parser.add_argument("--save_project", type=str, default="ocr")
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--gamma", type=float, default=0.5)
+    parser.add_argument("--g_loss_w", type=float, default=0.1)
+    parser.add_argument("--p_loss_w", type=float, default=1)
+    parser.add_argument("--epoch_stage",nargs='+', type=int, default=[100, 50])
+    parser.add_argument("--batch", type=int, default=25)
+    parser.add_argument("--train_root", type=Path, default=Path("dataset")/"tw"/"sr"/"train")
+    parser.add_argument("--val_root", type=Path, default=Path("dataset")/"tw"/"sr"/"val")
+    parser.add_argument("--seed", type=int, default=891122)
+
+    args = parser.parse_args()
+    args.epoch_stage = list(args.epoch_stage)
+    print(args)
+    main(args)
+    
+

@@ -16,22 +16,9 @@ import json
 from torch.utils.data import DataLoader
 from pathlib import Path
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_ACC_Evaluator
-from LPDGAN.logger import get_logger, print_infomation
+from logger import get_logger, print_infomation
 from imgproc_utils import L_CLAHE
-
-def reproducible(seed:int = 891122):
-    # Set random seeds for reproducibility
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
-    # Ensure reproducibility with CUDA
-    torch.cuda.manual_seed_all(seed)
-
-    # Configure deterministic behavior
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
+from torchtool import reproducible 
 
 
 def main(args:Namespace):

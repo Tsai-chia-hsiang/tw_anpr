@@ -1,6 +1,8 @@
 **/*.pyc
 **/*.pt
+**/*.pth
 dataset/*
+SR/finetune
 # Except the readme.md file
 LPDGAN/checkpoints
 !LPDGAN/models/taming/modules/autoencoder/ocr_perceptual/readme.md
