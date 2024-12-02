@@ -5,7 +5,6 @@ from SR.trainer import ESRGANModel
 from SR.data import  SR_Dataset, SR_View_Cmp_Dataset
 import gc
 import cv2
-import os
 from pathlib import Path
 from torch.utils.data import DataLoader
 import random
@@ -75,10 +74,13 @@ def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=Tru
             eloss[k] += losses[k]*n_sample
     
 
-    prefix = "train" if train else "val" 
-    acc = evar(pred=pred, gth=gt, metrics='lcs')
-    eloss =  eloss | {f'{prefix}_ocr_acc': acc}
     
+    acc = evar(pred=pred, gth=gt, metrics='lcs')
+    
+    eloss =  eloss | {f'ocr_acc': acc}
+    prefix = "train" if train else "val" 
+    eloss = {f"{prefix}_{k}":v for k,v in eloss.items()}
+
     for k in eloss:
         if 'ocr_acc' not in k:
             eloss[k] /= N
@@ -179,7 +181,7 @@ def main(args):
             logger=logger
         )
         trainer.update_lr()
-        print_infomation(val_eloss['val_ocr_acc'], logger=logger)
+        print_infomation(f"{e} : ocr acc : {val_eloss['val_ocr_acc']}", logger=logger)
         if val_eloss['val_ocr_acc'] >= ocr_acc:
             print_infomation(f"At {e} val ocr from {ocr_acc} -> {val_eloss['val_ocr_acc']}", logger=logger)
             torch.save(rrdbnet.state_dict(), project_dir/f"g.pth")
