@@ -42,7 +42,7 @@ def view_sr(model:RRDBNet, view_set:SR_View_Cmp_Dataset, dev:torch.device, save_
             )
 
 
-def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=True, board:SummaryWriter=None, epoch:int=None) -> dict[str, float]:
+def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=True, board:SummaryWriter=None, epoch:int=None, logger=None) -> dict[str, float]:
     iters = 0
     eloss = None
     if train:
@@ -66,7 +66,7 @@ def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=Tru
 
         
         if pbar is not None:
-            pbar.set_postfix(ordered_dict={'progress':f"{iters}/{N}","ploss":losses['l_g_percep'], 'lr':model.current_lr})
+            pbar.set_postfix(ordered_dict={'progress':f"{iters}/{N}", 'lr':model.current_lr})
         
         if eloss is None:
             eloss = {k:0 for k in losses}
@@ -76,14 +76,15 @@ def forward_one_epoch(loader:DataLoader, model:ESRGANModel, pbar:tqdm, train=Tru
     
 
     prefix = "train" if train else "val" 
-    acc = evar(pred=pred, gth=gt)
+    acc = evar(pred=pred, gth=gt, metrics='lcs')
     eloss =  eloss | {f'{prefix}_ocr_acc': acc}
-
+    
     for k in eloss:
         if 'ocr_acc' not in k:
             eloss[k] /= N
         if board is not None:
             board.add_scalar(k, eloss[k], epoch)
+    print_infomation(eloss, logger=logger)
 
     return eloss
 
@@ -116,12 +117,18 @@ def main(args):
 
     trainer = ESRGANModel(
         net_d=udis, net_g=rrdbnet,
-        dev=torch.device("cuda:0"),
+        dev=torch.device(args.devices),
         lr=args.lr, 
         MultiStepLR_mileston=args.epoch_stage[:-1],
         gamma=args.gamma,
         g_loss_w=args.g_loss_w,
-        p_loss_w=args.p_loss_w
+        p_loss_w=args.p_loss_w,
+        p_losses=args.p_losses,
+        ocr_p_w={
+            'logit_w':args.ocr_p_logit_w, 
+            'backbone_w':args.ocr_p_backbone_w, 
+            'neck_w':args.ocr_p_neck_w
+        }
     )
     
     train_set =  SR_Dataset(
@@ -151,10 +158,10 @@ def main(args):
     
     baseline = forward_one_epoch(
         loader=val_loader, model=trainer, 
-        pbar=None, train=False
+        pbar=None, train=False, logger=logger,
+        epoch=0, board=tensorboard_writer
     )
     
-    print_infomation(baseline, logger)
     ocr_acc = baseline['val_ocr_acc']
     pbar = trange(sum(args.epoch_stage))
     
@@ -162,12 +169,14 @@ def main(args):
 
         train_eloss = forward_one_epoch(
             loader=train_loader, model=trainer, pbar=pbar, 
-            train=True, board=tensorboard_writer, epoch=e
+            train=True, board=tensorboard_writer, epoch=e,
+            logger=logger
         )
    
         val_eloss = forward_one_epoch(
             loader=val_loader, model=trainer, pbar=pbar, 
-            train=False, board=tensorboard_writer, epoch=e
+            train=False, board=tensorboard_writer, epoch=e+1,
+            logger=logger
         )
         trainer.update_lr()
         print_infomation(val_eloss['val_ocr_acc'], logger=logger)
@@ -190,7 +199,7 @@ def main(args):
         view_sr(
             model=rrdbnet, 
             view_set=view_set,
-            dev=torch.device("cuda:0"),
+            dev=torch.device(args.devices),
             save_dir=project_dir/f"val_best_ocr",
         )
     else:
@@ -202,10 +211,19 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("--save_project", type=str, default="ocr")
+    parser.add_argument("--devices", type=str, default='0')
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--gamma", type=float, default=0.5)
     parser.add_argument("--g_loss_w", type=float, default=0.1)
+    parser.add_argument("--p_losses",type=str, nargs='+', default=['ocr', 'vgg'])
+    
     parser.add_argument("--p_loss_w", type=float, default=1)
+
+    parser.add_argument("--ocr_p_logit_w", type=float, default=1.0)
+    parser.add_argument("--ocr_p_backbone_w", type=float, default=1.0)
+    parser.add_argument("--ocr_p_neck_w", type=float, default=1.0)
+
+    
     parser.add_argument("--epoch_stage",nargs='+', type=int, default=[100, 50])
     parser.add_argument("--batch", type=int, default=25)
     parser.add_argument("--train_root", type=Path, default=Path("dataset")/"tw"/"sr"/"train")
@@ -214,6 +232,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.epoch_stage = list(args.epoch_stage)
+    if args.devices.isdigit():
+        args.devices = f"cuda:{args.devices}" 
+    
     print(args)
     main(args)
     
