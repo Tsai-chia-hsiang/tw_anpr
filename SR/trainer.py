@@ -385,12 +385,23 @@ class ESRGANModel():
             self, net_g:RRDBNet, net_d:UNetDiscriminatorSN, dev:torch.device,
             lr:float=1e-4, MultiStepLR_mileston:list[int]=[100], gamma:float=0.5,
             start_epoch:int=0,
-            g_loss_w:float=1e-1, p_loss_w:float=1.0
+            g_loss_w:float=1e-1, p_loss_w:float=1.0,
+            p_losses:tuple[str]=('ocr'), ocr_p_w :dict[str, float]=None
         ):
         super(ESRGANModel, self).__init__()
         
         self.dev = dev
-        self.cri_perceptual = PerceptualLoss(
+        self.p_loss_w = p_loss_w
+        self.current_lr = lr
+        self.cri_gan = GANLoss(loss_weight=g_loss_w)
+        self.ocr_per_w = ocr_p_w if ocr_p_w is not None else {'logit_w':1.0, 'backbone_w':-1, 'neck_w':1}
+        self.ocr_per = None
+        if 'ocr' in p_losses:
+            self.ocr_per = TextRec_Loss(input_hw=(56, 112))
+
+        self.cri_perceptual = None
+        if 'vgg' in p_losses:
+            self.cri_perceptual = PerceptualLoss(
             layer_weights={
                 'conv1_2': 0.1,
                 'conv2_2': 0.1,
@@ -400,10 +411,6 @@ class ESRGANModel():
             },
             perceptual_weight=p_loss_w
         )
-        self.current_lr = lr
-        self.cri_gan = GANLoss(loss_weight=g_loss_w)
-        
-        self.ocr_per = TextRec_Loss(input_hw=(56, 112))
 
         self.net_g = net_g
         self.net_g.to(self.dev)
@@ -423,9 +430,13 @@ class ESRGANModel():
             gamma=gamma,
             last_epoch=start_epoch - 1
         )
-        self.cri_perceptual.to(self.dev)
+        if self.cri_perceptual is not None:
+            self.cri_perceptual.to(self.dev)
+        
+        if self.ocr_per is not None:
+            self.ocr_per.to(self.dev)
+        
         self.cri_gan.to(self.dev)
-        self.ocr_per.to(self.dev)
 
     def optimize_parameters(self, lq:torch.Tensor, gt:torch.Tensor, train=True)-> dict[str, float]:
         # optimize net_g
@@ -454,20 +465,22 @@ class ESRGANModel():
         loss_dict['l_g_pix'] = l_g_pix.item()
         
         # perceptual loss
-        l_g_percep, l_g_style = self.cri_perceptual(output, gt)
+        if self.cri_perceptual is not None:
+            l_g_percep, l_g_style = self.cri_perceptual(output, gt)
+            
+            if l_g_percep is not None:
+                l_g_total += l_g_percep
+                loss_dict['l_g_percep'] = l_g_percep.item()
+            
+            if l_g_style is not None:
+                l_g_total += l_g_style
+                loss_dict['l_g_style'] = l_g_style.item()
         
-        if l_g_percep is not None:
-            l_g_total += l_g_percep
-            loss_dict['l_g_percep'] = l_g_percep.item()
-        
-        if l_g_style is not None:
-            l_g_total += l_g_style
-            loss_dict['l_g_style'] = l_g_style.item()
-        
-        l_g_ocr_p = self.ocr_per(output, gt)
-        l_g_total += l_g_ocr_p
-        
-        loss_dict['l_g_ocr_p'] = l_g_ocr_p.item()
+        # ocr perceptual loss
+        if self.ocr_per is not None:
+            l_g_ocr_p = self.ocr_per(x=output, gt=gt, **self.ocr_per_w)
+            l_g_total += l_g_ocr_p
+            loss_dict['l_g_ocr_p'] = l_g_ocr_p.item()
 
         # gan loss (relativistic gan)
         real_d_pred = self.net_d(gt).detach()
