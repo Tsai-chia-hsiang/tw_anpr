@@ -1,4 +1,5 @@
 import torch
+from typing import Any
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
@@ -960,6 +961,13 @@ class MBOSys(nn.Module):
             plate_num_l = self.cnn_blocks[layer_idx-1](x)
         y_l = self.MBOs[layer_idx](x)  
         return y_l, plate_num_l
+    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
+        try:
+            return super().load_state_dict(state_dict, strict, assign)
+        except:
+            s = {k.replace('MBOs.', ""):v for k,v in state_dict.items() if 'cnn_blocks' not in k}    
+            return self.MBOs.load_state_dict(s, strict, assign)
+
 
 
 
