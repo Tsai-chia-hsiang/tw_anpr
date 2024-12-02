@@ -23,7 +23,7 @@ def tensor2img(input_image:torch.Tensor, imtype:np.dtype=np.uint8, to_cv2:bool=T
     
     # CxHxW -> HxWXC
     image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0  # post-processing: tranpose and scaling
-    image_numpy = image_numpy.astype(imtype)
+    image_numpy = image_numpy.round().astype(imtype)
     if to_cv2:
         image_numpy = cv2.cvtColor(image_numpy, cv2.COLOR_RGB2BGR)
 
