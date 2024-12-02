@@ -1,0 +1,1 @@
+Put ```en_ptocr_v4_rec_infer.pth``` here
