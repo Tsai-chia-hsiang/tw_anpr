@@ -6,10 +6,11 @@ from torch.nn.functional import l1_loss
 from torchvision.models.vgg import VGG19_Weights
 from torch import nn as nn
 from torchvision.models import vgg as vgg
-from pathlib import Path
 from .network import RRDBNet, UNetDiscriminatorSN
 from .import SR_PRETRAINED_DIR, SR_FILE_DIR
-
+import sys 
+sys.path.append(os.path.abspath(SR_FILE_DIR.parent))
+from pytorchocr.OCR_percetualloss import TextRec_Loss
 
 VGG_PRETRAIN_PATH = str(SR_PRETRAINED_DIR/f"vgg19-dcbb9e9d.pth")
 NAMES = {
@@ -401,6 +402,9 @@ class ESRGANModel():
         )
         self.current_lr = lr
         self.cri_gan = GANLoss(loss_weight=g_loss_w)
+        
+        self.ocr_per = TextRec_Loss(input_hw=(56, 112))
+
         self.net_g = net_g
         self.net_g.to(self.dev)
         self.net_d = net_d
@@ -421,6 +425,7 @@ class ESRGANModel():
         )
         self.cri_perceptual.to(self.dev)
         self.cri_gan.to(self.dev)
+        self.ocr_per.to(self.dev)
 
     def optimize_parameters(self, lq:torch.Tensor, gt:torch.Tensor, train=True)-> dict[str, float]:
         # optimize net_g
@@ -447,9 +452,10 @@ class ESRGANModel():
         l_g_pix = l1_loss(output, gt, reduction='mean')
         l_g_total += l_g_pix
         loss_dict['l_g_pix'] = l_g_pix.item()
-        # perceptual loss
         
+        # perceptual loss
         l_g_percep, l_g_style = self.cri_perceptual(output, gt)
+        
         if l_g_percep is not None:
             l_g_total += l_g_percep
             loss_dict['l_g_percep'] = l_g_percep.item()
@@ -457,6 +463,12 @@ class ESRGANModel():
         if l_g_style is not None:
             l_g_total += l_g_style
             loss_dict['l_g_style'] = l_g_style.item()
+        
+        l_g_ocr_p = self.ocr_per(output, gt)
+        l_g_total += l_g_ocr_p
+        
+        loss_dict['l_g_ocr_p'] = l_g_ocr_p.item()
+
         # gan loss (relativistic gan)
         real_d_pred = self.net_d(gt).detach()
         fake_g_pred = self.net_d(output)
