@@ -220,5 +220,6 @@ This project utilizes code and resources from the following repositories:
 - [LPDGAN](https://github.com/haoyGONG/LPDGAN.git)
     - origin paper: https://www.ijcai.org/proceedings/2024/0086.pdf
 - [Automatic-Number-Plate-Recognition-Using-YOLOv8-EasyOCR](https://github.com/ANPR-ORG/Automatic-Number-Plate-Recognition-Using-YOLOv8-EasyOCR.git)
+- [PaddleOCR2Pytorch](https://github.com/frotms/PaddleOCR2Pytorch.git)/pytorchocr
 
 We deeply appreciate the work of these developers and their contributions to the open-source community.
