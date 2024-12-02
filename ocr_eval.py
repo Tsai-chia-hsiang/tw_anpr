@@ -1,5 +1,6 @@
 from anpr import LicensePlate_OCR, OCR_Evaluator
 from functools import partial
+import shutil
 import Levenshtein as lev
 from typing import Optional
 from LPDGAN.LPDGAN import SwinTrans_G
@@ -78,39 +79,39 @@ def main(args:Namespace):
     ocr_eva = OCR_Evaluator()
 
     pred = [None] * len(imgs)
+    confs = []
     for i, img_path in enumerate(tqdm(imgs)):
         
         src_img = cv2.imread(img_path)
-        if src_img.shape[:2] != (112, 224):
-            src_img = cv2.resize(src_img, (224,112))
-    
+
         if db is not None:
             src_img = db.inference(x=src_img)
-        else:
-            src_img = normalize_brightness(src_img)
-        
-        plate_number = lp_ocr(crop=src_img, preprocess_pipeline=L_CLAHE, det=True)
-        pred[i] = plate_number[0]
+        #else:
+        #    src_img = normalize_brightness(src_img)
+        #src_img = cv2.resize(src_img,dsize=None, fx=0.5, fy=0.5)
+        plate_number = lp_ocr(crop=src_img)
+        pred[i] = plate_number[1]
+        confs.append(np.mean(plate_number[2]))
     
-    acc, dist = ocr_eva(pred=pred, gth=labels, method='lcs', to_acc=True, detail=True)
+    acc, dist = ocr_eva(pred=pred, gth=labels, method='cer', to_acc=True, detail=True)
     
     print(f"{title},{acc}")
+    R = Path("dataset/tw/cruiser")
+    R.mkdir(parents=True, exist_ok=True)
+    R_OK=R/"ok"
+    R_OK.mkdir(parents=True, exist_ok=True)
+    good_map = {}
     
-    """q = np.argsort(np.asarray(edit_distances))
-    edit_distances = np.asarray(edit_distances)[q]
-    vis_dir = Path("dataset/experiments")/f"{title}"
-    vis_dir.mkdir(parents=True, exist_ok=True)
-    for i, qi in enumerate([0, 0.3, 0.6, 1]):
-        idx= None
-        if qi ==0:
-            idx = q[:5]
-        elif qi == 1:
-            idx = q[-5:]
-        else:
-            pivot = int(len(q)*qi)
-            idx = q[pivot-3:pivot+2]
-        canvas = make_topk_vis_canvas(idxs=idx, imgs=imgs, labels=labels, pred=pred, lp=lp_ocr, deblur_swintransformer=deblur_swintransformer)
-        cv2.imwrite(vis_dir/f"q{i}.png", canvas)"""
+    for d, i, l, c in zip(dist, imgs, labels, confs):
+        if len(l) >= 5 and d == 0:            
+            save = R_OK/l
+            save.mkdir(parents=True, exist_ok=True)
+            if l not in good_map:
+                good_map[l] = 0
+
+            shutil.copy(i, save/f"{good_map[l]}_{int(c*100)}.jpg")
+            good_map[l] += 1
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
