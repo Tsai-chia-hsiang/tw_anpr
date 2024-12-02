@@ -1,0 +1,28 @@
+model_type: rec
+algorithm: SVTR_LCNet
+Transform: null
+return_all_feats: true
+head_out: true
+Backbone:
+  name: PPLCNetV3
+  scale: 0.95
+Head:
+  name: MultiHead
+  head_out: true
+  head_list:
+  - CTCHead:
+      Neck:
+        name: svtr
+        dims: 120
+        depth: 2
+        hidden_dims: 120
+        kernel_size:
+        - 1
+        - 3
+        use_guide: true
+      Head:
+        fc_decay: 1.0e-05
+        return_logit: true
+  - NRTRHead:
+      nrtr_dim: 384
+      max_text_length: 25

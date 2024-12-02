@@ -10,7 +10,7 @@ from .network import RRDBNet, UNetDiscriminatorSN
 from .import SR_PRETRAINED_DIR, SR_FILE_DIR
 import sys 
 sys.path.append(os.path.abspath(SR_FILE_DIR.parent))
-from pytorchocr.OCR_percetualloss import TextRec_Loss
+from pytorchocr.OCR_perceptualloss import TextRec_Loss
 
 VGG_PRETRAIN_PATH = str(SR_PRETRAINED_DIR/f"vgg19-dcbb9e9d.pth")
 NAMES = {
