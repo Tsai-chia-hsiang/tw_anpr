@@ -2,10 +2,10 @@ from pathlib import Path
 import torch
 from logging import Logger
 from typing import Optional
-"""import sys
+import sys
 import os
-sys.path.append(str(Path(os.path.abspath(__file__)).parent/"logger"))"""
-from ..logger import print_infomation
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent))
+from logger import print_infomation
 
 def numerical_stability(logit:torch.Tensor) -> torch.Tensor:
     return logit - logit.max(dim=-1, keepdim=True)[0]

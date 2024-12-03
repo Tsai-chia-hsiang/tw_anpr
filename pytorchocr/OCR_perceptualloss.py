@@ -76,9 +76,9 @@ class TextRec_Loss(torch.nn.Module):
         
     def to(self, device:torch.device, **kwargs):
         self.model.net.to(device=device, **kwargs)
-        super().to(device=device, **kwargs)
+        return super().to(device=device, **kwargs)
     
-    def forward(self, x:torch.Tensor, gt:torch.Tensor, logit_w:float=1.0, backbone_w:float=-1, neck_w:float=-1) -> torch.Tensor:
+    def forward(self, x:torch.Tensor, gt:torch.Tensor, logit_w:float=1.0, backbone_w:float=-1, neck_w:float=-1, normalized=False) -> torch.Tensor:
         """
         feature: dict of tensors
             - back_out: backbone output
@@ -89,8 +89,8 @@ class TextRec_Loss(torch.nn.Module):
                 - res: same as ctc
                 - ctc_neck: the features before go into linear classifer layer
         """
-        pgt = self.preprocessing(gt)
-        px = self.preprocessing(x)
+        pgt = self.preprocessing(gt, normalized=normalized)
+        px = self.preprocessing(x, normalized=normalized)
         
         gt_feature = self.model.net(pgt.detach())
         px_feature = self.model.net(px)
@@ -106,12 +106,13 @@ class TextRec_Loss(torch.nn.Module):
         return l 
 
 
-    def preprocessing(self, x:torch.Tensor) -> torch.Tensor:
+    def preprocessing(self, x:torch.Tensor, normalized=False) -> torch.Tensor:
         """
         x: image tensor with shape : (B,C,H,W) 
         """
         output_tensor = F.interpolate(x[:, [2, 1, 0], :, :], size=self.processing_hw, mode='bilinear', align_corners=False)
-        output_tensor = (output_tensor-0.5)/0.5
+        if not normalized:
+            output_tensor = (output_tensor-0.5)/0.5
         return self.zero_padding(output_tensor)
 
 

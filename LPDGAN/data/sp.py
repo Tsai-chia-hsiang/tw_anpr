@@ -7,7 +7,7 @@ from .aug import normalize_brightness
 
 class Spatial_Pyramid_cv2():
     
-    def __init__(self, org_size:tuple[int, int]=(224, 112), origin_brightness:Optional[int]=180, interpolation:int=cv2.INTER_LINEAR) -> None:
+    def __init__(self, org_size:tuple[int, int]=(112, 56), origin_brightness:Optional[int]=180, interpolation:int=cv2.INTER_CUBIC) -> None:
         """
         Args:
         -- 
@@ -27,14 +27,13 @@ class Spatial_Pyramid_cv2():
         )
     
   
-    def __call__(self, img:np.ndarray, map_key:str="A", L:int=4, to_batch:bool=False) -> dict[str, torch.Tensor]:
+    def __call__(self, img:np.ndarray, map_key:str="A", L:int=2, to_batch:bool=False) -> dict[str, torch.Tensor]:
         
         def a_res(img, L_idx:int, to_batch:bool=False) -> torch.Tensor:
             x = cv2.resize(img, self.tsize[L_idx], interpolation=self.inter) if L_idx > 0 else img
             i:torch.Tensor = self.n(x)
             return i.unsqueeze(0) if (to_batch and i.ndim == 3) else i
         
-        # resize to (W, H) = (224, 112)
         img_ = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), self.tsize[0], interpolation=self.inter) 
         if self.b is not None:
             img_ = normalize_brightness(img=img_, target_brightness=self.b)

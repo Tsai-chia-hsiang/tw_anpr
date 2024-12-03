@@ -37,12 +37,8 @@ def main(args:Namespace):
     reproducible(seed=args.seed)
     
     dataset_root:Path = args.data_root
-    dataset = LP_Deblur_Dataset(
-        data_root = dataset_root, blur_aug = args.blur_aug,
-        extraction=args.txt_extract, 
-        cache_name=args.txt_cached, cached_file=args.txt_cached,
-        preload=args.preload
-    )
+    dataset = LP_Deblur_Dataset(data_root = dataset_root, blur_aug = args.blur_aug, preload=args.preload)
+
     logger.info(f'The number of training pairs = {len(dataset)}')
     trainloader = DataLoader(
         dataset=dataset, batch_size=args.batch_size, 
@@ -65,7 +61,7 @@ def main(args:Namespace):
     if val_dataset is not None:
         logger.info(f"validation set : {args.val_data_root}, label:{args.label_file}, num: {len(val_dataset)}")
         val_loader = DataLoader(dataset=val_dataset, batch_size=args.val_batch, shuffle=False)
-        validator = LPD_OCR_ACC_Evaluator(ocr_preprocess=L_CLAHE, current_best=0.0)
+        validator = LPD_OCR_ACC_Evaluator(ocr_preprocess=None, current_best=0.0)
 
     lpdgan = LPDGAN_Trainer(
         logger=logger, epochs_policy= {
@@ -76,10 +72,7 @@ def main(args:Namespace):
         pretrained_weights=args.pretrained_weights,
         gan_mode=args.gan_mode,
         lr=args.lr, lr_policy=args.lr_policy, lambda_L1=args.lambda_L1, 
-        ocr_percepual=args.ocr_perceptual,
         gpu_id=args.gpu_id,
-        txt_recons_dim=dataset.txt_d,
-        plate_loss =args.txt_loss,
         D_warm_up=args.D_warm_up,
         load_G=args.load_G, load_D=args.load_D
     )
@@ -190,7 +183,7 @@ if __name__ == "__main__":
     # Loss function
     parser.add_argument("--ocr_perceptual", action='store_false')
     parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
-    parser.add_argument('--txt_loss', type=str, default='probl1')
+    parser.add_argument('--txt_loss', type=str, default='l1')
 
     args = parser.parse_args()
     if args.blur_aug == "all":

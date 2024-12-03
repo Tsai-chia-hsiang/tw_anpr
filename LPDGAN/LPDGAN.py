@@ -9,18 +9,16 @@ import torch.nn as nn
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from .models import SwinTransformer_Backbone, MBOSys, get_config_or, load_networks
-from .models.networks import NLayerDiscriminator, \
-    PixelDiscriminator, PerceptualLoss, GANLoss, TXT_REC_LOSSES, \
-    get_scheduler
+from .models import SwinTransformer_Backbone, get_config_or, load_networks
+from .models.networks import NLayerDiscriminator, PixelDiscriminator
+from .models.networks import PerceptualLoss, GANLoss, get_scheduler
 from .data import tensor2img, Spatial_Pyramid_cv2
-from .models.taming.modules.losses.lpips import OCR_CRAFT_LPIPS
 from . import _LPDGAN_DIR_
 
 import sys
 sys.path.append(os.path.abspath(_LPDGAN_DIR_.parent))
 from logger import print_infomation
-
+from pytorchocr.OCR_perceptualloss import TextRec_Loss
 sys.path.append(os.path.abspath(_LPDGAN_DIR_.parent/f"anpr"))
 from anpr import LicensePlate_OCR, OCR_Evaluator
 
@@ -28,7 +26,7 @@ check_gpu_id = lambda gpu_id: gpu_id > -1 and torch.cuda.is_available() and gpu_
 
 class SwinTrans_G(nn.Module):
     
-    def __init__(self, on_size:tuple[int, int]=(224, 112)):
+    def __init__(self, on_size:tuple[int, int]=(112, 56)):
         
         super(SwinTrans_G, self).__init__()
 
@@ -42,12 +40,9 @@ class SwinTrans_G(nn.Module):
         self.device = device
         return super().to(device=device, **kwargs)
         
-    def forward(self, x:dict[str, torch.Tensor],on_train:bool=False) -> tuple[torch.Tensor, list[torch.Tensor]|None]:
+    def forward(self, x:dict[str, torch.Tensor]) -> torch.Tensor:
         #y, [fake_B3, fake_B2, fake_B1] 
-        return self.netG(
-            x['A0'].to(self.device), x['A1'].to(self.device), x['A2'].to(self.device),
-            layer_out = on_train
-        )
+        return self.netG(x['A0'].to(self.device), x['A1'].to(self.device))
     
     @torch.no_grad()
     def inference(self, x:np.ndarray, to_cv2:bool=True) -> np.ndarray:
@@ -55,12 +50,12 @@ class SwinTrans_G(nn.Module):
         if self.inference_aug is None:
             self.inference_aug = Spatial_Pyramid_cv2(org_size=self.on_size) 
         
-        fake_B, _ = self(self.inference_aug(img=x, map_key='A', L=3, to_batch=True), on_train=False)
+        fake_B = self(self.inference_aug(img=x, map_key='A', L=2, to_batch=True), on_train=False)
         return tensor2img(input_image=fake_B[0], to_cv2=to_cv2)
     
     @torch.no_grad()
     def batch_inference(self, x:dict[str, torch.Tensor],to_cv2:bool=True) -> list[np.ndarray]:
-        fake_B, _ = self(x, on_train=False)
+        fake_B = self(x)
         fake_B = fake_B.cpu()
         return [tensor2img(fake_Bi, to_cv2=to_cv2) for fake_Bi in fake_B]
         
@@ -68,20 +63,19 @@ class SwinTrans_G(nn.Module):
 class LPDGAN_Trainer(nn.Module):
     
     def __init__(
-            self, epochs_policy:dict[str, str], 
-            gan_mode:Literal['wgangp', 'vanilla']='wgangp',
-            pretrained_weights:Optional[Path] = None ,
-            lr:float=0.0002,  lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
-            D_warm_up:int=2,
-            input_channel:int=3, output_channel:int=3, ndf:int = 64,
-            lambda_L1:float=100.0, plate_loss:Literal['probl1', 'kl']='probl1',
-            ocr_percepual:bool=True,
-            logger:Optional[Logger]=None, 
-            gpu_id:str='0',
-            on_size:tuple[int,int]=(224, 112),
-            txt_recons_dim:tuple[int, int]=(55, 97),
-            load_G:bool=True, load_D:bool=False
-        ) -> None:
+        self, epochs_policy:dict[str, str], 
+        gan_mode:Literal['wgangp', 'vanilla']='wgangp',
+        pretrained_weights:Optional[Path] = None ,
+        lr:float=0.0002,  
+        lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
+        D_warm_up:int=2,
+        input_channel:int=3, output_channel:int=3, ndf:int = 64,
+        lambda_L1:float=100.0, text_loss:Literal['l1', 'kl']='l1',
+        logger:Optional[Logger]=None, 
+        gpu_id:str='0',
+        on_size:tuple[int,int]=(112,56),
+        load_G:bool=True, load_D:bool=False
+    ) -> None:
         super().__init__()
         self.device_id = gpu_id
         if gpu_id == 'cuda':
@@ -96,19 +90,11 @@ class LPDGAN_Trainer(nn.Module):
         self.metric = 0
         self.lr_policy = lr_policy
         self.lambda_L1 = lambda_L1
-        self.plate_loss_w = 0.001 if plate_loss == "kl" else 0.01
-        self.plate_loss = TXT_REC_LOSSES[plate_loss]
+       
         self.stage = "D_warm_up"
         #swin transformer
         self.netG = SwinTrans_G(on_size=on_size)
         
-        #Multi-res output and text reconstruction modules
-        self.netMBO = MBOSys(
-            img_sizes = [(14, 28), (28, 56), (56, 112)],
-            embed_dims = [384, 192, 96],
-            txt_seq=txt_recons_dim
-        )
-
         self.netD = NLayerDiscriminator(
             self.input_channel + self.output_channel, 
             self.ndf, n_layers=3, 
@@ -117,22 +103,6 @@ class LPDGAN_Trainer(nn.Module):
             )
         )
         
-        self.netD1 = NLayerDiscriminator(
-            self.input_channel + self.output_channel, 
-            self.ndf, n_layers=3, 
-            norm_layer=functools.partial(
-                nn.BatchNorm2d, affine=True, track_running_stats=True
-            )
-        )
-        
-        self.netD2 = NLayerDiscriminator(
-            self.input_channel + self.output_channel, 
-            self.ndf, n_layers=3, 
-            norm_layer=functools.partial(
-                nn.BatchNorm2d, affine=True, track_running_stats=True
-            )
-        )
-
         self.netD_smallblock = PixelDiscriminator(
             self.input_channel, self.ndf, 
             norm_layer=functools.partial(
@@ -140,7 +110,7 @@ class LPDGAN_Trainer(nn.Module):
             )
         )
         
-        self.model_names = ['G','MBO','D', 'D_smallblock', 'D1', 'D2']
+        self.model_names = ['G','D', 'D_smallblock']
         if load_G:
             self.load_nets(
                 target=self.model_names[:2], 
@@ -154,22 +124,28 @@ class LPDGAN_Trainer(nn.Module):
         
         self._net_to_device(target=self.model_names)
     
-        self.loss_names = ['G_GAN', 'G_L1', 'PlateNum', 'D_GAN', 'P_loss', 'D_real', 'D_fake', 'D_s']
+        self.loss_names = ['G_GAN', 'G_L1', 'D_GAN', 'G_Perceptual', 'G_OCR', 'D_real', 'D_fake', 'D_s']
         self.criterionL1 = torch.nn.L1Loss()
         self.criterionGAN = GANLoss(gan_mode).to(self.device)
         self.criterionGAN_s = GANLoss('lsgan').to(self.device)
         self.perceptualLoss = PerceptualLoss().to(self.device)
-        self.OCR_perceptualLoss = OCR_CRAFT_LPIPS().to(self.device).eval() if ocr_percepual else None
-        
+        self.textloss = TextRec_Loss(input_hw=on_size[::-1], loss_type=text_loss.upper()).to(self.device)
 
         self.optimizer_G = torch.optim.Adam(
-            list(self.netG.parameters())+list(self.netMBO.parameters()), 
-            lr=lr, betas=(0.5, 0.999)
+            self.netG.parameters(), lr=lr, betas=(0.5, 0.999)
         )
-
-        self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=lr, betas=(0.5, 0.999))
-        
-        self.optimizers = [self.optimizer_G,self.optimizer_D]
+        self.optimizer_D = torch.optim.Adam(
+            self.netD.parameters(), lr=lr, betas=(0.5, 0.999)
+        )
+        self.optimizer_D_smallblock = torch.optim.Adam(
+            self.netD_smallblock.parameters(), lr=lr,
+            betas=(0.5, 0.999)
+        )
+        self.optimizers = [
+            self.optimizer_G,
+            self.optimizer_D,
+            self.optimizer_D_smallblock 
+        ]
         self.schedulers = [
             get_scheduler(opt, lr_policy=self.lr_policy, **epochs_policy)
             for opt in self.optimizers
@@ -199,23 +175,10 @@ class LPDGAN_Trainer(nn.Module):
         
         self.real_A = input_x['A0'].to(self.device)
         self.real_A1 = input_x['A1'].to(self.device)
-        self.real_A2 = input_x['A2'].to(self.device)
-        self.image_paths = input_x['A_paths'] if 'A_paths' in input_x else None
         self.real_B = input_x['B0'].to(self.device)
-        self.real_B1 = input_x['B1'].to(self.device)
-        self.real_B2 = input_x['B2'].to(self.device)
-        self.real_B3 = input_x['B3'].to(self.device)
-        self.plate_info = input_x['plate_info'].to(self.device)
 
-        self.fake_B, ret = self.netG(
-            {'A0':self.real_A, 'A1':self.real_A1, 'A2':self.real_A2},
-            on_train=True
-        )
-        
-        self.fake_B3, _ = self.netMBO(ret[0], layer_idx=0)
-        self.fake_B2, self.plate2 = self.netMBO(ret[1], layer_idx=1)
-        self.fake_B1, self.plate1 = self.netMBO(ret[2], layer_idx=2)
-        
+        self.fake_B = self.netG({'A0':self.real_A, 'A1':self.real_A1})
+
         self.fake_B_split = torch.chunk(self.fake_B, 7, dim=3)
         self.real_B_split = torch.chunk(self.real_B, 7, dim=3)
         self.real_A_split = torch.chunk(self.real_A, 7, dim=3)
@@ -247,8 +210,15 @@ class LPDGAN_Trainer(nn.Module):
         return loss_G_s_fake / 7.0
 
     def backward_D(self, warm_up:bool=False):
-        fake_AB = torch.cat((self.real_A, self.fake_B),
-                            1)
+        """
+        - real A :blur
+            - constant
+        - real B :sharp
+            - constant
+        - fake B :deblur from A 
+            - with gradient tree from G
+        """
+        fake_AB = torch.cat((self.real_A, self.fake_B),1)
         pred_fake = self.netD(fake_AB.detach())
         loss_D_fake = self.criterionGAN(pred_fake, False)
 
@@ -256,35 +226,15 @@ class LPDGAN_Trainer(nn.Module):
         pred_real = self.netD(real_AB)
         loss_D_real = self.criterionGAN(pred_real, True)
 
-        fake_AB1 = torch.cat((self.real_A1, self.fake_B1),
-                             1)
-        pred_fake1 = self.netD1(fake_AB1.detach())
-        loss_D_fake1 = self.criterionGAN(pred_fake1, False)
+        self.loss_D_fake = loss_D_fake 
+        self.loss_D_real = loss_D_real 
 
-        real_AB1 = torch.cat((self.real_A1, self.real_B1), 1)
-        pred_real1 = self.netD1(real_AB1)
-        loss_D_real1 = self.criterionGAN(pred_real1, True)
-
-        fake_AB2 = torch.cat((self.real_A2, self.fake_B2),
-                             1)
-        pred_fake2 = self.netD2(fake_AB2.detach())
-        loss_D_fake2 = self.criterionGAN(pred_fake2, False)
-
-        real_AB2 = torch.cat((self.real_A2, self.real_B2), 1)
-        pred_real2 = self.netD2(real_AB2)
-        loss_D_real2 = self.criterionGAN(pred_real2, True)
-
-        self.loss_D_fake = (loss_D_fake + loss_D_fake1 + loss_D_fake2) / 3
-        self.loss_D_real = (loss_D_real + loss_D_real1 + loss_D_real2) / 3
-
-        self.loss_D_GAN = (loss_D_fake + loss_D_real + loss_D_fake1 + loss_D_real1 +
-                           loss_D_fake2 + loss_D_real2) * 0.5 / 3
+        self.loss_D_GAN = (loss_D_fake + loss_D_real ) /2
 
         loss_D_s_fake, loss_D_s_real = self.cal_small_D()
-        self.loss_D_s = (loss_D_s_fake + loss_D_s_real) * 0.5
+        self.loss_D_s = (loss_D_s_fake + loss_D_s_real) /2
 
-        self.loss_D_gp = (self.cal_gp(fake_AB, real_AB) + self.cal_gp(fake_AB1, real_AB1) +
-                          self.cal_gp(fake_AB2, real_AB2)) * 10 / 3
+        self.loss_D_gp = self.cal_gp(fake_AB, real_AB) *10
 
         self.loss_D = self.loss_D_GAN + self.loss_D_gp + self.loss_D_s
         self.loss_D.backward(retain_graph=not warm_up)
@@ -293,45 +243,28 @@ class LPDGAN_Trainer(nn.Module):
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)
         pred_fake = self.netD(fake_AB)
         loss_G_GAN = self.criterionGAN(pred_fake, True)
-
-        fake_AB1 = torch.cat((self.real_A1, self.fake_B1), 1)
-        pred_fake1 = self.netD1(fake_AB1)
-        loss_G_GAN1 = self.criterionGAN(pred_fake1, True)
-
-        fake_AB2 = torch.cat((self.real_A2, self.fake_B2), 1)
-        pred_fake2 = self.netD2(fake_AB2)
-        loss_G_GAN2 = self.criterionGAN(pred_fake2, True)
-
-        self.loss_G_GAN = (loss_G_GAN + loss_G_GAN1 + loss_G_GAN2) / 3
+        
+        self.loss_G_GAN = loss_G_GAN
 
         self.loss_G_s = self.cal_small_G()
 
-        loss_G_L1:torch.Tensor = self.criterionL1(self.fake_B, self.real_B) * self.lambda_L1
-        loss_G_L11:torch.Tensor = self.criterionL1(self.fake_B1, self.real_B1) * self.lambda_L1
-        loss_G_L12 :torch.Tensor= self.criterionL1(self.fake_B2, self.real_B2) * self.lambda_L1
-        loss_G_L13:torch.Tensor = self.criterionL1(self.fake_B3, self.real_B3) * self.lambda_L1
+        self.loss_G_L1:torch.Tensor = self.criterionL1(
+            self.fake_B, self.real_B
+        ) *  0.01
 
-        self.loss_G_L1 = (loss_G_L1 + loss_G_L11 + loss_G_L12 + loss_G_L13) / 4 * 0.01
+        self.loss_G_Perceptual:torch.Tensor = self.perceptualLoss(
+            self.fake_B, self.real_B
+        ) *  0.01
 
-        if self.OCR_perceptualLoss is not None:
-            loss_P_loss = self.OCR_perceptualLoss(self.fake_B, self.real_B)
-            loss_P_loss1 = self.OCR_perceptualLoss(self.fake_B1, self.real_B1)
-            loss_P_loss2 = self.OCR_perceptualLoss(self.fake_B2, self.real_B2)
-        else:
-            loss_P_loss = self.perceptualLoss(self.fake_B, self.real_B)
-            loss_P_loss1 = self.perceptualLoss(self.fake_B1, self.real_B1)
-            loss_P_loss2 = self.perceptualLoss(self.fake_B2, self.real_B2)
+        self.loss_G_OCR:torch.Tensor = self.textloss(
+            self.fake_B, self.real_B, 1, 1, 1,
+            normalized=True
+        )
         
-        loss_P_loss3:torch.Tensor = self.perceptualLoss(self.fake_B3, self.real_B3)
-
-        self.loss_P_loss = (loss_P_loss + loss_P_loss1 + loss_P_loss2 + loss_P_loss3) / 4 * 0.01
+        self.loss_G = self.loss_G_GAN + self.loss_G_s + \
+            self.loss_G_L1 + self.loss_G_Perceptual + \
+            self.loss_G_OCR
         
-        self.loss_PlateNum:torch.Tensor = (
-            self.plate_loss(self.plate1, self.plate_info) + \
-            self.plate_loss(self.plate2, self.plate_info)
-        ) / 2 * self.plate_loss_w
-       
-        self.loss_G = self.loss_G_GAN + self.loss_G_s + self.loss_G_L1 + self.loss_P_loss + 0.1 * self.loss_PlateNum
         self.loss_G.backward()
 
     #enter point : optimize the paras
@@ -340,13 +273,13 @@ class LPDGAN_Trainer(nn.Module):
         self.forward(input_x=input_x)
         warm_up = step < self.D_warm_up
         if warm_up:
-            self.set_requires_grad([self.netG, self.netMBO], warm_up)
+            self.set_requires_grad(self.netG, warm_up)
         elif step == self.D_warm_up and self.stage != "e2e":
             # The next step out of warm up, open the gradient of Generator
             self.stage="e2e"
-            self.set_requires_grad([self.netG, self.netMBO], True)
+            self.set_requires_grad(self.netG, True)
 
-        self.set_requires_grad([self.netD, self.netD1, self.netD2, self.netD_smallblock], True)
+        self.set_requires_grad([self.netD, self.netD_smallblock], True)
        
         self.optimizer_D.zero_grad()
         self.backward_D(warm_up=warm_up)
@@ -354,7 +287,7 @@ class LPDGAN_Trainer(nn.Module):
         if warm_up:
             return
 
-        self.set_requires_grad([self.netD, self.netD1, self.netD2, self.netD_smallblock], False)
+        self.set_requires_grad([self.netD, self.netD_smallblock], False)
         self.optimizer_G.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
@@ -373,9 +306,6 @@ class LPDGAN_Trainer(nn.Module):
         )[0]
         gp = ((g.norm(2, dim=1) - 1) ** 2).mean()
         return gp
-
-    def get_image_paths(self):
-        return self.image_paths
 
     def update_learning_rate(self) -> tuple[float, float]:
         old_lr = self.optimizers[0].param_groups[0]['lr']
@@ -462,7 +392,6 @@ class LPD_OCR_ACC_Evaluator(OCR_Evaluator):
             else:
                 imgs = swintrans_g.batch_inference(x=data)
             for img in imgs:
-                img = self.preprocess(img)
                 prediction = self.ocr(img)
                 pred.append(prediction[0])  
             gth += list(data['gth']) 

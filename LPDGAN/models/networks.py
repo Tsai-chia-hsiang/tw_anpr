@@ -34,12 +34,8 @@ def kl_divergen(pred:torch.Tensor, gth_prob:torch.Tensor) -> torch.Tensor:
     return kl_loss
 
 def logit_l1(pred:torch.Tensor, gth_prob:torch.Tensor) -> torch.Tensor:
-    return F.l1_loss(F.softmax(numerical_stability(pred), dim=-1), gth_prob)
+    return F.l1_loss(numerical_stability(pred), gth_prob)
 
-TXT_REC_LOSSES = {
-    'probl1':logit_l1,
-    'kl': kl_divergen
-}
 
 class GANLoss(nn.Module):
 
@@ -142,10 +138,9 @@ class SwinTransformer_Backbone(nn.Module):
                                 patch_norm=config.MODEL.SWIN.PATCH_NORM,
                                 use_checkpoint=config.TRAIN.USE_CHECKPOINT)
 
-    def forward(self, x:torch.Tensor, x1:torch.Tensor, x2:torch.Tensor, layer_out:bool=False)->tuple[torch.Tensor | list[torch.Tensor]|None]:
-        if x.size()[1] == 1:
-            x = x.repeat(1,3,1,1)
-        return self.swin_unet(x, x1, x2, layer_out=layer_out)
+    def forward(self, x1:torch.Tensor, x2:torch.Tensor, layer_out:bool=False)->tuple[torch.Tensor | list[torch.Tensor]|None]:
+        
+        return self.swin_unet(x1, x2, layer_out=layer_out)
 
     def unfreeze(self):
         for param in self.inception.parameters():

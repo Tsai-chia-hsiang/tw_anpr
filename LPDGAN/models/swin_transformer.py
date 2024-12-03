@@ -1021,13 +1021,9 @@ class SwinTransformerSys(nn.Module):
         self.mlp_ratio = mlp_ratio
         self.final_upsample = final_upsample
         # split image into non-overlapping patches
-        self.patch_embed = PatchEmbed(
-            img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
-            norm_layer=norm_layer if self.patch_norm else None)
-        num_patches = self.patch_embed.num_patches
-        patches_resolution = self.patch_embed.patches_resolution
-        self.patches_resolution = patches_resolution
-
+    
+        self.patches_resolution = [img_size[0] // patch_size[0], img_size[1] // patch_size[1]]
+        num_patches = self.patches_resolution[0]*self.patches_resolution[1]
         # absolute position embedding
         if self.ape:
             self.absolute_pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
@@ -1038,11 +1034,7 @@ class SwinTransformerSys(nn.Module):
         # stochastic depth
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
-        # build encoder and bottleneck layers
-        self.IE0 = Input_Extracter(img_size=(112, 224), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=48,
-                                   depths=[2, 2, 2, 2], num_heads=[3, 6, 12, 24], window_size=7,
-                                   mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
-                                   use_checkpoint=False)
+
         self.IE1 = Input_Extracter(img_size=(56, 112), patch_size=(2, 4), in_chans=3, num_classes=3, embed_dim=48,
                                    depths=[2, 2, 2, 2], num_heads=[3, 6, 12, 24], window_size=7,
                                    mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
@@ -1052,46 +1044,44 @@ class SwinTransformerSys(nn.Module):
                                    mlp_ratio=4., qkv_bias=True, drop_rate=0.0, drop_path_rate=0.2, patch_norm=True,
                                    use_checkpoint=False)
 
-        self.Linear = torch.nn.Linear(1152, 384)
+        #self.Linear = torch.nn.Linear(1152, 384)
 
-        self.Fusion1CNN1 = CNN_Block(96, 384)
-        self.Fusion1CNN2 = CNN_Block(96, 384)
+    
         self.Fusion2CNN1 = CNN_Block(48, 192)
         self.Fusion2CNN2 = CNN_Block(48, 192)
+        self.proj_fusion = nn.Linear(self.num_features, embed_dim * 2 ** (self.num_layers - 2))
+        self.norm = norm_layer(embed_dim * 2 ** (self.num_layers - 2))
 
+        
         # build decoder layers
         self.layers_up = nn.ModuleList()
-        self.concat_back_dim = nn.ModuleList()
-        for i_layer in range(self.num_layers):
-            concat_linear = nn.Linear(2 * int(embed_dim * 2 ** (self.num_layers - 1 - i_layer)),
-                                      int(embed_dim * 2 ** (
-                                                  self.num_layers - 1 - i_layer))) if i_layer > 0 else nn.Identity()
-            if i_layer == 0:
-                layer_up = PatchExpand(
-                    input_resolution=(patches_resolution[0] // (2 ** (self.num_layers - 1 - i_layer)),
-                                      patches_resolution[1] // (2 ** (self.num_layers - 1 - i_layer))),
-                    dim=int(embed_dim * 2 ** (self.num_layers - 1 - i_layer)), dim_scale=2, norm_layer=norm_layer)
-            else:
-                layer_up = BasicLayer_up(dim=int(embed_dim * 2 ** (self.num_layers - 1 - i_layer)),
-                                         input_resolution=(
-                                         patches_resolution[0] // (2 ** (self.num_layers - 1 - i_layer)),
-                                         patches_resolution[1] // (2 ** (self.num_layers - 1 - i_layer))),
-                                         depth=depths[(self.num_layers - 1 - i_layer)],
-                                         num_heads=num_heads[(self.num_layers - 1 - i_layer)],
-                                         window_size=window_size,
-                                         mlp_ratio=self.mlp_ratio,
-                                         qkv_bias=qkv_bias, qk_scale=qk_scale,
-                                         drop=drop_rate, attn_drop=attn_drop_rate,
-                                         drop_path=dpr[sum(depths[:(self.num_layers - 1 - i_layer)]):sum(
-                                             depths[:(self.num_layers - 1 - i_layer) + 1])],
-                                         norm_layer=norm_layer,
-                                         upsample=PatchExpand if (i_layer < self.num_layers - 1) else None,
-                                         use_checkpoint=use_checkpoint)
-            self.layers_up.append(layer_up)
-            self.concat_back_dim.append(concat_linear)
-        
      
-        self.norm = norm_layer(self.num_features)
+        for i_layer in range(self.num_layers):
+            s = (self.num_layers - 1 - i_layer, self.num_layers - 1 - i_layer)
+            if i_layer == 0:
+                layer_up = nn.Identity()
+            else:
+                layer_up = BasicLayer_up(
+                    dim=int(embed_dim * 2 ** (self.num_layers - 1 - i_layer)),
+                    input_resolution=(
+                        self.patches_resolution[0] // (2 **(s[0])),
+                        self.patches_resolution[1] // (2 **(s[1]))                   
+                    ),
+                    depth=depths[(self.num_layers - 1 - i_layer)],
+                    num_heads=num_heads[(self.num_layers - 1 - i_layer)],
+                    window_size=window_size,
+                    mlp_ratio=self.mlp_ratio,
+                    qkv_bias=qkv_bias, qk_scale=qk_scale,
+                    drop=drop_rate, attn_drop=attn_drop_rate,
+                    drop_path=dpr[sum(depths[:(self.num_layers - 1 - i_layer)]):sum(
+                        depths[:(self.num_layers - 1 - i_layer) + 1])],
+                    norm_layer=norm_layer,
+                    upsample=PatchExpand if (i_layer < self.num_layers - 1) else None,
+                    use_checkpoint=use_checkpoint
+                )
+            self.layers_up.append(layer_up)
+        
+
         self.norm_up = norm_layer(self.embed_dim)
 
         if self.final_upsample == "expand_first":
@@ -1118,33 +1108,21 @@ class SwinTransformerSys(nn.Module):
     def no_weight_decay_keywords(self):
         return {'relative_position_bias_table'}
 
-    def fusion1(self, f1, f2):
-        f2_A, f2_B = torch.chunk(f2, chunks=2, dim=2)
-        f2_A = self.Fusion1CNN1(f2_A)
-        f2_B = self.Fusion1CNN2(f2_B)
-        add_res = torch.mul(f2_A, f1) + f2_B
-        final = torch.cat((add_res, f1), dim=2)
-
-        return final
-
-    def fusion2(self, f1, f2):
+    def fusion(self, f1, f2):
         f2_A, f2_B = torch.chunk(f2, chunks=2, dim=2)
         f2_A = self.Fusion2CNN1(f2_A)
         f2_B = self.Fusion2CNN2(f2_B)
-        add_res = torch.mul(f2_A, f1) + f2_B
+        add_res = f2_A*f1 + f2_B
         final = torch.cat((add_res, f1), dim=2)
 
         return final
 
     # Encoder and Bottleneck
-    def forward_features(self, x, x1, x2):
-        x = self.IE0(x)
+    def forward_features(self, x1, x2):
         x1 = self.IE1(x1)
         x2 = self.IE2(x2)
-        fused1 = self.fusion1(x, x1)
-        fused2 = self.fusion2(x1, x2)
-        final_fusion = self.Linear(torch.cat((fused1, fused2), dim=2))
-
+        final_fusion = self.fusion(x1, x2)
+        final_fusion = self.proj_fusion(final_fusion)
         final_fusion = self.norm(final_fusion)  # B L C
         # print('x shape after encoder:', x.shape)
         return final_fusion
@@ -1152,15 +1130,16 @@ class SwinTransformerSys(nn.Module):
     # Decoder and Skip connection
     def forward_up_features(self, x:torch.Tensor, layer_out=False)->tuple[torch.Tensor, list[torch.Tensor]|None]:
         
-        ret = [None]*3 if layer_out else None
+        #ret = [None]*3 if layer_out else None
         #y3, y2, y1
         for inx, layer_up in enumerate(self.layers_up):
-            if ret is not None and inx < 3:
+            """if ret is not None and inx < 3:
                 ret[inx] = x
+            """
             x = layer_up(x)
         
         x = self.norm_up(x)  # B L C
-        return x, ret
+        return x
 
     def up_x4(self, x:torch.Tensor):
         H, W = self.patches_resolution
@@ -1175,10 +1154,10 @@ class SwinTransformerSys(nn.Module):
 
         return x
 
-    def forward(self, x, x1, x2, layer_out:bool=False)->tuple[torch.Tensor, list[torch.Tensor]|None]:
-        x = self.forward_features(x, x1, x2)
+    def forward(self, x1, x2, layer_out:bool=False)->tuple[torch.Tensor, list[torch.Tensor]|None]:
+        x = self.forward_features(x1, x2)
         #y, [y3, y2, y1]
-        x, ret = self.forward_up_features(x, layer_out=layer_out)
+        x = self.forward_up_features(x, layer_out=layer_out)
 
         x = self.up_x4(x)
-        return x, ret 
+        return x 
