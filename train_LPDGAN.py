@@ -5,11 +5,8 @@ import gc
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import shutil
-import random
-import time
-from tqdm import tqdm, trange
+from tqdm import trange
 from argparse import ArgumentParser, Namespace
-import torch
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import json
@@ -17,7 +14,6 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 from LPDGAN import LP_Deblur_Dataset, LP_Deblur_OCR_Valiation_Dataset, LPDGAN_Trainer, LPDGAN_DEFALUT_CKPT_DIR, LPD_OCR_ACC_Evaluator
 from logger import get_logger, print_infomation
-from imgproc_utils import L_CLAHE
 from torchtool import reproducible 
 
 
@@ -74,7 +70,9 @@ def main(args:Namespace):
         lr=args.lr, lr_policy=args.lr_policy, lambda_L1=args.lambda_L1, 
         gpu_id=args.gpu_id,
         D_warm_up=args.D_warm_up,
-        load_G=args.load_G, load_D=args.load_D
+        load_G=args.load_G, load_D=args.load_D,
+        t_loss_w=args.t_loss_w, 
+        percep_loss_w=args.percep_loss_w
     )
     
     epoch_loss = None
@@ -140,8 +138,6 @@ if __name__ == "__main__":
     # Data path
     parser.add_argument("--data_root", type=Path, default=Path("./dataset")/"tw"/"new")
     parser.add_argument("--blur_aug", nargs='+', type=str, default='all')
-    parser.add_argument("--txt_cached", type=Path, default=None)
-    parser.add_argument("--txt_extract", type=str, default='paddleocr')
     parser.add_argument("--preload", action='store_true')
     parser.add_argument("--val_data_root", type=Path, default=None)
     parser.add_argument("--label_file", type=Path, default=None)
@@ -158,10 +154,11 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=40)
     parser.add_argument('--D_warm_up', type=int, default=2)
     parser.add_argument("--n_epochs", type=int, default=100, help='number of epochs with the initial learning rate')
-    parser.add_argument("--n_epochs_decay", type=int, default=200, help='number of epochs to linearly decay learning rate to zero')
+    parser.add_argument("--n_epochs_decay", type=int, default=100, help='number of epochs to linearly decay learning rate to zero')
     parser.add_argument("--lr_decay_iters", type=int, default=50, help='multiply by a gamma every lr_decay_iters iterations')
     parser.add_argument('--lr_policy', type=str, default='linear',help='learning rate policy. [linear | step | plateau | cosine]')
     parser.add_argument('--warm_up_batch_size', type=int, default=50)
+    
     # save mode 
     parser.add_argument('--not_save', action='store_true')
     parser.add_argument('--save_epoch_freq', type=int, default=5)
@@ -177,14 +174,12 @@ if __name__ == "__main__":
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate for adam')
     
-    # GAN
-    parser.add_argument('--gan_mode', type=str, default='wgangp')
-    
     # Loss function
-    parser.add_argument("--ocr_perceptual", action='store_false')
-    parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
+    parser.add_argument('--gan_mode', type=str, default='wgangp')
+    parser.add_argument("--percep_loss_w", type=float, default=1e-2)
     parser.add_argument('--txt_loss', type=str, default='l1')
-
+    parser.add_argument('--t_loss_w', type=float, default=1.0)
+    
     args = parser.parse_args()
     if args.blur_aug == "all":
         args.blur_aug = [_.name for _ in args.data_root.iterdir() if _.name != "sharp" and _.is_dir()]

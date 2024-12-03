@@ -70,7 +70,9 @@ class LPDGAN_Trainer(nn.Module):
         lr_policy:Literal['linear', 'step', 'plateau', 'cosine']='linear',
         D_warm_up:int=2,
         input_channel:int=3, output_channel:int=3, ndf:int = 64,
-        lambda_L1:float=100.0, text_loss:Literal['l1', 'kl']='l1',
+        percep_loss_w:float=1e-2,
+        text_loss:Literal['l1', 'kl', 'no']='l1',
+        t_loss_w:float=1.0,
         logger:Optional[Logger]=None, 
         gpu_id:str='0',
         on_size:tuple[int,int]=(112,56),
@@ -89,7 +91,7 @@ class LPDGAN_Trainer(nn.Module):
         self.ndf = ndf
         self.metric = 0
         self.lr_policy = lr_policy
-        self.lambda_L1 = lambda_L1
+        
        
         self.stage = "D_warm_up"
         #swin transformer
@@ -128,8 +130,16 @@ class LPDGAN_Trainer(nn.Module):
         self.criterionL1 = torch.nn.L1Loss()
         self.criterionGAN = GANLoss(gan_mode).to(self.device)
         self.criterionGAN_s = GANLoss('lsgan').to(self.device)
-        self.perceptualLoss = PerceptualLoss().to(self.device)
-        self.textloss = TextRec_Loss(input_hw=on_size[::-1], loss_type=text_loss.upper()).to(self.device)
+        
+        self.perceptualLoss = None
+        self.p_w = percep_loss_w
+        if percep_loss_w > 0:
+            self.perceptualLoss = PerceptualLoss().to(self.device)
+        
+        self.textloss=None
+        self.t_loss_w = t_loss_w
+        if text_loss != 'no':
+            self.textloss = TextRec_Loss(input_hw=on_size[::-1], loss_type=text_loss.upper()).to(self.device)
 
         self.optimizer_G = torch.optim.Adam(
             self.netG.parameters(), lr=lr, betas=(0.5, 0.999)
@@ -242,28 +252,31 @@ class LPDGAN_Trainer(nn.Module):
     def backward_G(self):
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)
         pred_fake = self.netD(fake_AB)
-        loss_G_GAN = self.criterionGAN(pred_fake, True)
-        
-        self.loss_G_GAN = loss_G_GAN
 
+        self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         self.loss_G_s = self.cal_small_G()
+        self.loss_G_L1:torch.Tensor = self.criterionL1(self.fake_B, self.real_B) *  0.01
 
-        self.loss_G_L1:torch.Tensor = self.criterionL1(
-            self.fake_B, self.real_B
-        ) *  0.01
+        self.loss_G = self.loss_G_GAN + self.loss_G_s + self.loss_G_L1
 
-        self.loss_G_Perceptual:torch.Tensor = self.perceptualLoss(
-            self.fake_B, self.real_B
-        ) *  0.01
+        if self.perceptualLoss is not None:
+            
+            self.loss_G_Perceptual:torch.Tensor = self.perceptualLoss(
+                self.fake_B, self.real_B
+            ) *  self.p_w
 
-        self.loss_G_OCR:torch.Tensor = self.textloss(
-            self.fake_B, self.real_B, 1, 1, 1,
-            normalized=True
-        )
-        
-        self.loss_G = self.loss_G_GAN + self.loss_G_s + \
-            self.loss_G_L1 + self.loss_G_Perceptual + \
-            self.loss_G_OCR
+            self.loss_G += self.loss_G_Perceptual
+
+        if self.textloss is not None:
+            
+            self.loss_G_OCR:torch.Tensor = self.textloss(
+                self.fake_B, self.real_B, 
+                self.t_loss_w, self.t_loss_w, self.t_loss_w,
+                normalized=True
+            )
+
+            self.loss_G += self.loss_G_OCR
+            
         
         self.loss_G.backward()
 

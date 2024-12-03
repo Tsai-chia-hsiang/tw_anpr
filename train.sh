@@ -16,6 +16,8 @@ PLATE_LOSS=l1
 WARM_UP=1
 PRETRAINED=./LPDGAN/checkpoints/pretrained
 WBATCH=160
+PLOSSW=0.005
+TLOSSW=3
 
 python train_LPDGAN.py \
     --data_root $TRAIN_DATASET \
@@ -27,4 +29,5 @@ python train_LPDGAN.py \
     --lr $LR --model_save_root $SAVE\
     --save_epoch_freq $SAVE_EPOCH\
     --seed $SEED --preload \
-    --D_warm_up $WARM_UP --warm_up_batch_size $WBATCH 
+    --D_warm_up $WARM_UP --warm_up_batch_size $WBATCH  \
+    --percep_loss_w $PLOSSW --t_loss_w $TLOSSW
