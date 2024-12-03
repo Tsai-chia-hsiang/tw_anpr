@@ -67,7 +67,7 @@ def main(args:Namespace):
         },
         pretrained_weights=args.pretrained_weights,
         gan_mode=args.gan_mode,
-        lr=args.lr, lr_policy=args.lr_policy, lambda_L1=args.lambda_L1, 
+        lr=args.lr, lr_policy=args.lr_policy, 
         gpu_id=args.gpu_id,
         D_warm_up=args.D_warm_up,
         load_G=args.load_G, load_D=args.load_D,
